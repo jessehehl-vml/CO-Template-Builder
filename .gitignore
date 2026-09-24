@@ -1,0 +1,8 @@
+cat > .gitignore <<'EOF'
+node_modules/
+dist/
+webview-dist/
+export/
+*.vsix
+.DS_Store
+EOF

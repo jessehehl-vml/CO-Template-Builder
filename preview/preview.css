@@ -1,0 +1,616 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #202124;
+  background: #f4f5f7;
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+/* --------------------------------------------------
+   Layout
+-------------------------------------------------- */
+
+.preview-app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* --------------------------------------------------
+   Top bar
+-------------------------------------------------- */
+
+.preview-topbar {
+  height: 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 0 16px;
+
+  background: #ffffff;
+  border-bottom: 1px solid #e1e3e6;
+}
+
+.preview-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------
+   Sidebar
+-------------------------------------------------- */
+
+.preview-sidebar {
+  width: 330px;
+  min-width: 330px;
+
+  padding: 12px;
+
+  background: #ffffff;
+  border-right: 1px solid #e1e3e6;
+
+  overflow-y: auto;
+}
+
+.variant-search {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.variant-search input {
+  width: 100%;
+  height: 36px;
+
+  padding: 0 36px 0 11px;
+
+  border: 1px solid #d7dbe0;
+  border-radius: 5px;
+
+  outline: none;
+
+  font-size: 12px;
+}
+
+.variant-search input:focus {
+  border-color: #8aa4e8;
+}
+
+.variant-search-icon {
+  position: absolute;
+  top: 9px;
+  right: 11px;
+
+  color: #667085;
+  font-size: 14px;
+}
+
+.variant-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 12px;
+}
+
+.variant-count {
+  font-size: 11px;
+  color: #8a919b;
+}
+
+.variant-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.variant-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  width: 100%;
+  padding: 8px;
+
+  border: 0;
+  border-radius: 4px;
+
+  background: transparent;
+
+  text-align: left;
+  cursor: pointer;
+
+  font-size: 12px;
+  color: #30343a;
+}
+
+.variant-item:hover {
+  background: #f1f3f5;
+}
+
+.variant-item.selected {
+  background: #e8eefc;
+}
+
+.variant-checkbox {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+
+  accent-color: #1745d1;
+}
+
+.variant-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------
+   Content area
+-------------------------------------------------- */
+
+.preview-content {
+  position: relative;
+
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+
+  padding: 20px 24px 40px;
+
+  overflow: auto;
+}
+
+.preview-content-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  margin-bottom: 16px;
+}
+
+.preview-content-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preview-content-count {
+  font-size: 11px;
+  color: #8a919b;
+}
+
+/* --------------------------------------------------
+   Size controls
+-------------------------------------------------- */
+
+.size-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  margin-bottom: 20px;
+}
+
+.size-chip {
+  padding: 5px 9px;
+
+  border: 1px solid #d5d9de;
+  border-radius: 4px;
+
+  background: #ffffff;
+
+  font-size: 11px;
+
+  cursor: pointer;
+}
+
+.size-chip.selected {
+  border-color: #1745d1;
+
+  background: #e8eefc;
+
+  color: #1745d1;
+}
+
+.size-chip-all {
+  min-width: 32px;
+
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+/* --------------------------------------------------
+   Preview grid
+-------------------------------------------------- */
+
+.preview-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+/* --------------------------------------------------
+   Preview cards
+-------------------------------------------------- */
+
+.preview-card {
+  background: #ffffff;
+  border: 1px solid #d9dce1;
+  border-radius: 6px;
+
+  overflow: hidden;
+
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.preview-card-header {
+  height: 34px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 0 10px;
+
+  background: #ffffff;
+  border-bottom: 1px solid #e3e5e8;
+
+  color: #202124;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preview-card-size {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.preview-frame-wrapper {
+  padding: 12px;
+  background: #f8f9fa;
+}
+
+.preview-frame {
+  display: block;
+
+  background: #ffffff;
+  border: 0;
+}
+
+.preview-card-reload {
+  padding: 2px 4px;
+
+  border: 0;
+  background: transparent;
+
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+
+  cursor: pointer;
+}
+
+.preview-card-reload:hover {
+  color: #202124;
+}
+
+/* --------------------------------------------------
+   QA frames
+-------------------------------------------------- */
+
+.qa-frames {
+  display: block;
+
+  width: 100%;
+  max-width: 100%;
+}
+
+.qa-frame-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+
+  width: 100%;
+  max-width: 100%;
+}
+
+.qa-frame-container {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+
+  flex: 0 0 auto;
+
+  width: max-content;
+  max-width: 100%;
+}
+
+.qa-frame-label {
+  height: 24px;
+
+  display: flex;
+  align-items: center;
+
+  padding: 0 2px;
+
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.qa-preview-stage {
+  position: relative;
+
+  flex: 0 0 auto;
+}
+
+.qa-preview-stage .preview-frame {
+  display: block;
+}
+
+/* --------------------------------------------------
+   QA controls
+-------------------------------------------------- */
+
+.qa-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  margin-left: auto;
+
+  font-size: 12px;
+  font-weight: 500;
+
+  cursor: pointer;
+  user-select: none;
+}
+
+.qa-toggle input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.qa-overlay-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  margin-left: auto;
+}
+
+.qa-overlay-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qa-overlay-opacity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qa-overlay-opacity input[type="range"] {
+  width: 100px;
+}
+
+.qa-overlay-opacity span {
+  width: 35px;
+
+  text-align: right;
+
+  font-size: 12px;
+}
+
+/* --------------------------------------------------
+   Floating bottom toolbar
+-------------------------------------------------- */
+
+.preview-bottom-toolbar {
+  position: fixed;
+  right: 26px;
+  bottom: 12px;
+
+  z-index: 100;
+
+  height: 40px;
+
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
+  padding: 0 10px;
+
+  background: #ffffff;
+  border: 1px solid #d9dce1;
+  border-radius: 8px;
+
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.reload-all-button {
+  padding: 5px 7px;
+
+  border: 0;
+  border-radius: 5px;
+
+  background: transparent;
+
+  color: #30343a;
+  font-size: 11px;
+
+  cursor: pointer;
+}
+
+.reload-all-button:hover {
+  background: #f1f3f5;
+}
+
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.zoom-slider {
+  width: 120px;
+  cursor: pointer;
+}
+
+.zoom-label {
+  width: 32px;
+
+  color: #667085;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* --------------------------------------------------
+   Storyboards
+-------------------------------------------------- */
+
+.storyboard-section {
+  position: relative;
+
+  margin-top: 12px;
+  margin-bottom: 24px;
+}
+
+.storyboard-title {
+  margin-bottom: 8px;
+
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.storyboard-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.storyboard-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.storyboard-label {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.storyboard-image {
+  display: block;
+
+  width: auto;
+  height: auto;
+
+  max-width: none;
+
+  object-fit: contain;
+}
+
+/* Divider when multiple QA frames share a row */
+.qa-frame-row:has(.qa-frame-container + .qa-frame-container)
+  .storyboard-section {
+  padding-top: 8px;
+  margin-bottom: 0px;
+  border-top: 1px solid #ddd;
+}
+
+/* no padding in overlay mode */
+.qa-frame-row:has(.qa-frame-container + .qa-frame-container)
+  .storyboard-section.storyboard-overlay {
+  padding-top: 0;
+  margin-bottom: 0;
+  border-top: 0;
+}
+/* Storyboard hidden inside normal QA stage */
+.qa-preview-stage .storyboard-section {
+  display: none;
+}
+
+/* --------------------------------------------------
+   Storyboard overlay
+-------------------------------------------------- */
+
+.storyboard-section.storyboard-overlay {
+  position: absolute;
+
+  top: 24px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+
+  z-index: 10;
+
+  display: block;
+
+  margin: 0;
+  padding: 0;
+
+  border: 0;
+
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.storyboard-section.storyboard-overlay .storyboard-title {
+  display: none;
+}
+
+.storyboard-section.storyboard-overlay .storyboard-image {
+  display: block;
+
+  width: 100%;
+  height: 100%;
+
+  max-width: none;
+
+  margin: 0;
+  padding: 0;
+
+  object-fit: fill;
+}

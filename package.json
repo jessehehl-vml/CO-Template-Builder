@@ -1,0 +1,76 @@
+{
+  "name": "co-template-builder",
+  "displayName": "CO Template Builder",
+  "description": "Create, preview, QA and export Creative Optimizations HTML5 advertising templates from Visual Studio Code.",
+  "version": "0.0.1",
+  "publisher": "JesseHehl",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.138.0"
+  },
+  "files": [
+    "dist/**",
+    "webview-dist/**",
+    "resources/**"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jessehehl-vml/CO-Template-Builder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jessehehl-vml/CO-Template-Builder/issues"
+  },
+  "homepage": "https://github.com/jessehehl-vml/CO-Template-Builder#readme",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "my-vscode-extension",
+          "title": "CO Template Builder",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "my-vscode-extension": [
+        {
+          "type": "webview",
+          "id": "my-vscode-extension.sidebar",
+          "name": "Home",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "compile:webview": "vite build",
+    "vscode:prepublish": "npm run compile && npm run compile:webview",
+    "watch": "tsc -watch -p ./",
+    "watch:webview": "vite build --watch",
+    "pretest": "npm run compile",
+    "test": "echo \"No tests yet\""
+  },
+  "devDependencies": {
+    "@types/archiver": "^8.0.0",
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@types/vscode": "^1.138.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vscode/vsce": "^4.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}
