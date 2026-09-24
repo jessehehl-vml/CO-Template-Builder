@@ -13,7 +13,9 @@
   "files": [
     "dist/**",
     "webview-dist/**",
-    "resources/**"
+    "resources/**",
+    "LICENSE",
+    "node_modules/**"
   ],
   "categories": [
     "Other"
@@ -63,6 +65,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@types/vscode": "^1.138.0",
+    "@vercel/ncc": "^0.45.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@vscode/vsce": "^4.0.0",
     "typescript": "^7.0.2",
