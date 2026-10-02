@@ -943,11 +943,27 @@ class SidebarProvider implements vscode.WebviewViewProvider {
   }
   private async login(webview: vscode.Webview) {
     try {
+      console.log("[EXT AUTH] login() starting");
+
       await this.authenticate();
+
+      console.log("[EXT AUTH] authenticate() completed");
+
+      const token = await this.auth.getAuthToken();
+
+      console.log("[EXT AUTH] token after authenticate:", {
+        hasToken: !!token,
+      });
+
       await this.sendAuthenticationState(webview);
+
+      console.log("[EXT AUTH] sendAuthenticationState() completed");
+
       await this.broadcastAuthenticationState();
+
+      console.log("[EXT AUTH] broadcastAuthenticationState() completed");
     } catch (error) {
-      console.error("[AUTH] Login failed:", error);
+      console.error("[EXT AUTH] Login failed:", error);
 
       webview.postMessage({
         type: "authenticationError",
@@ -960,6 +976,8 @@ class SidebarProvider implements vscode.WebviewViewProvider {
   }
   private async broadcastAuthenticationState() {
     const authState = await this.getAuthenticationState();
+
+    console.log("[EXT AUTH] Broadcasting authenticationState:", authState);
 
     this.sidebarWebview?.webview.postMessage({
       type: "authenticationState",
@@ -975,6 +993,8 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       type: "authenticationState",
       ...authState,
     });
+
+    console.log("[EXT AUTH] authenticationState broadcast complete");
   }
   private async getAuthenticationState() {
     const token = await this.auth.getAuthToken();
@@ -2154,7 +2174,8 @@ ${fontLinks}
                       dimension?.placeholders ?? []
                     ).find(
                       (placeholder: any) =>
-                        placeholder?.name === "product-selector_ID" &&
+                        (placeholder?.name === "product-selector_ID" ||
+                          placeholder?.name === "productSelector") &&
                         placeholder?.value,
                     );
 
@@ -2510,7 +2531,12 @@ ${Array.from({ length: frameCount }, (_, index) => {
         }
       }
       if (message.type === "connectToCreativeOptimizations") {
+        console.log("[EXT AUTH] connectToCreativeOptimizations received");
+
         await this.login(panel.webview);
+
+        console.log("[EXT AUTH] login() completed");
+
         return;
       }
       if (message.type === "loadPlaceholders") {
@@ -2643,14 +2669,23 @@ ${Array.from({ length: frameCount }, (_, index) => {
         return;
       }
       if (message.type === "loadAgencyData") {
+        console.log("[EXT AGENCY] loadAgencyData received");
+
         try {
           const token = await this.auth.getAuthToken();
 
+          console.log("[EXT AGENCY] Auth token:", {
+            hasToken: !!token,
+          });
+
           if (!token) {
+            console.warn(
+              "[EXT AGENCY] No auth token - authentication required",
+            );
+
             panel.webview.postMessage({
-              type: "agencyDataLoaded",
-              agencies: [],
-              currentAgencyId: null,
+              type: "authenticationState",
+              authenticated: false,
               email: null,
               name: null,
             });
@@ -2658,7 +2693,16 @@ ${Array.from({ length: frameCount }, (_, index) => {
             return;
           }
 
+          console.log("[EXT AGENCY] Calling api.getMe()");
+
           const user = await this.api.getMe();
+
+          console.log("[EXT AGENCY] getMe() returned:", {
+            email: user.email,
+            name: user.name,
+            rolesCount: user.roles?.length,
+            roles: user.roles,
+          });
 
           const agencies = Array.from(
             new Map(
@@ -2671,6 +2715,9 @@ ${Array.from({ length: frameCount }, (_, index) => {
               ]),
             ).values(),
           );
+
+          console.log("[EXT AGENCY] Derived agencies:", agencies);
+
           panel.webview.postMessage({
             type: "agencyDataLoaded",
             agencies,
@@ -2678,8 +2725,10 @@ ${Array.from({ length: frameCount }, (_, index) => {
             email: user.email,
             name: user.name,
           });
+
+          console.log("[EXT AGENCY] agencyDataLoaded message sent");
         } catch (error) {
-          console.error("Failed to load agencies:", error);
+          console.error("[EXT AGENCY] Failed to load agencies:", error);
 
           panel.webview.postMessage({
             type: "agencyDataError",

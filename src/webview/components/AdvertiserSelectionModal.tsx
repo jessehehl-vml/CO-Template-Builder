@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 type VsCodeApi = {
   postMessage(message: unknown): void;
@@ -70,6 +70,16 @@ export default function AdvertiserSelectionModal({
   onAdvertiserChange,
   onConfirm,
 }: AdvertiserSelectionModalProps) {
+  console.log("[AGENCY MODAL] render:", {
+    isOpen,
+    isAuthenticated,
+    userEmail,
+    agenciesCount: agencies.length,
+    loadingAgencies,
+    apiError,
+    selectedAgency,
+    selectedAdvertiser,
+  });
   if (!isOpen) {
     return null;
   }
@@ -90,7 +100,7 @@ export default function AdvertiserSelectionModal({
         </div>
 
         <div className="modal-body">
-          {!isAuthenticated ? (
+          {!isAuthenticated || !userEmail ? (
             <div className="login-section">
               <h3>Connect to Creative Optimizations</h3>
 
@@ -99,7 +109,10 @@ export default function AdvertiserSelectionModal({
               <button
                 className="connect-button"
                 onClick={() => {
-                  setLoadingAgencies(true);
+                  console.log(
+                    "[AGENCY MODAL] Connect to Creative Optimizations clicked",
+                  );
+
                   setApiError(null);
 
                   vscode.postMessage({

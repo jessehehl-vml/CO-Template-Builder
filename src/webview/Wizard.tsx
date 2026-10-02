@@ -699,20 +699,50 @@ export default function Wizard() {
       }
 
       if (message.type === "authenticationState") {
-        setIsAuthenticated(message.authenticated);
+        console.log("[WIZARD AUTH] authenticationState received:", {
+          authenticated: message.authenticated,
+          email: message.email,
+        });
 
-        if (message.authenticated) {
-          setUserEmail(message.email ?? null);
-          setUserName(message.name ?? null);
-        } else {
+        if (!message.authenticated) {
+          setIsAuthenticated(false);
+
           setUserEmail(null);
           setUserName(null);
+
+          setAgencies([]);
+          setAdvertisers([]);
+
+          setSelectedAgency(null);
+          setSelectedAdvertiser(null);
+          setSelectedAgencyName(null);
+          setSelectedAdvertiserName(null);
+
+          setLoadingAgencies(false);
+          setLoadingAdvertisers(false);
+
+          setApiError(null);
+
+          setShowFontImportModal(false);
+          setShowExportAdvertiserModal(false);
+
+          return;
         }
+
+        setIsAuthenticated(true);
+        setUserEmail(message.email ?? null);
+        setUserName(message.name ?? null);
 
         return;
       }
 
       if (message.type === "agencyDataLoaded") {
+        console.log("[WIZARD AGENCY] agencyDataLoaded received:", {
+          agencyCount: message.agencies?.length,
+          email: message.email,
+          name: message.name,
+        });
+
         setAgencies(message.agencies);
         setUserEmail(message.email ?? null);
         setUserName(message.name ?? null);
@@ -723,6 +753,8 @@ export default function Wizard() {
       }
 
       if (message.type === "agencyDataError") {
+        console.error("[WIZARD AGENCY] agencyDataError:", message.message);
+
         setLoadingAgencies(false);
         setApiError(message.message);
 
@@ -963,9 +995,27 @@ export default function Wizard() {
 
   // Load agencies for Fonts and Export
   useEffect(() => {
-    if (!showFontImportModal && !showExportAdvertiserModal) {
+    console.log("[WIZARD AGENCY EFFECT] triggered:", {
+      isAuthenticated,
+      showFontImportModal,
+      showExportAdvertiserModal,
+    });
+
+    if (!isAuthenticated) {
+      console.log("[WIZARD AGENCY EFFECT] STOPPED: not authenticated");
+
+      setLoadingAgencies(false);
       return;
     }
+
+    if (!showFontImportModal && !showExportAdvertiserModal) {
+      console.log("[WIZARD AGENCY EFFECT] STOPPED: no modal open");
+
+      setLoadingAgencies(false);
+      return;
+    }
+
+    console.log("[WIZARD AGENCY EFFECT] Loading agencies");
 
     setLoadingAgencies(true);
     setApiError(null);
@@ -973,9 +1023,7 @@ export default function Wizard() {
     vscode.postMessage({
       type: "loadAgencyData",
     });
-  }, [showFontImportModal, showExportAdvertiserModal]);
-
-  // Load advertisers for import modals
+  }, [isAuthenticated, showFontImportModal, showExportAdvertiserModal]);
   // Load advertisers for import modals and export advertiser modal
   useEffect(() => {
     if (

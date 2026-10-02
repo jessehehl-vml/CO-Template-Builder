@@ -2,7 +2,7 @@
   "name": "co-template-builder",
   "displayName": "CO Template Builder",
   "description": "Create, preview, QA and export Creative Optimizations HTML5 advertising templates from Visual Studio Code.",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "publisher": "JesseHehl",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -15,7 +15,9 @@
     "webview-dist/**",
     "resources/**",
     "LICENSE",
-    "node_modules/**"
+    "node_modules/**",
+    "boilerplate/**",
+    "preview/**"
   ],
   "categories": [
     "Other"
