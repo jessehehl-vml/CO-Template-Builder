@@ -334,6 +334,7 @@ export default function Wizard() {
   const [frameCount, setFrameCount] = useState(1);
   const [autoFillPlaceholderContent, setAutoFillPlaceholderContent] =
     useState(false);
+  const [autoScaleFonts, setAutoScaleFonts] = useState(false);
 
   // Export to CO
   const [exportMode, setExportMode] = useState(
@@ -964,6 +965,14 @@ export default function Wizard() {
     }
   };
 
+  useEffect(() => {
+    if (!settingsMode || !settingsLoaded || !loadedSettings) {
+      return;
+    }
+
+    setAutoScaleFonts(Boolean(loadedSettings.autoScaleFonts));
+  }, [settingsMode, settingsLoaded, loadedSettings]);
+
   // Selected adset
   useEffect(() => {
     if (
@@ -1154,6 +1163,8 @@ export default function Wizard() {
                   setFrameCount={setFrameCount}
                   autoFillPlaceholderContent={autoFillPlaceholderContent}
                   setAutoFillPlaceholderContent={setAutoFillPlaceholderContent}
+                  autoScaleFonts={autoScaleFonts}
+                  setAutoScaleFonts={setAutoScaleFonts}
                   onExport={() => setExportMode(true)}
                 />
               )}
@@ -1502,6 +1513,7 @@ export default function Wizard() {
             hasIncompleteFont={hasIncompleteFont}
             getCurrentSettings={getCurrentSettings}
             autoFillPlaceholderContent={autoFillPlaceholderContent}
+            autoScaleFonts={autoScaleFonts}
           />
         )}
       </div>

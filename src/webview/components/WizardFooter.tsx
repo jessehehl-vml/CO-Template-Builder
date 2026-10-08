@@ -87,6 +87,7 @@ type WizardFooterProps = {
   vscode: VsCodeApi;
   frameCount: number;
   autoFillPlaceholderContent: boolean;
+  autoScaleFonts: boolean;
   name: string;
   selectedFolder: string | null;
   userName: string | null;
@@ -130,6 +131,7 @@ export default function WizardFooter({
   adsets,
   frameCount,
   autoFillPlaceholderContent,
+  autoScaleFonts,
   step,
   setStep,
   settingsMode,
@@ -215,6 +217,7 @@ export default function WizardFooter({
               collectionMapping,
               frames: frameCount,
               autoFillPlaceholderContent,
+              autoScaleFonts,
               selectedAgency: selectedAgency
                 ? (agencies.find((agency) => agency.id === selectedAgency) ??
                   null)

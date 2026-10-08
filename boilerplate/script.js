@@ -24,7 +24,7 @@ async function initCreative(content) {
   await Creative.awaitAll();
 
   startAnimations();
-  await Creative.autoScaleFont();
+  /* AUTO_SCALE_FONTS */
   mainTimeline.play();
 }
 

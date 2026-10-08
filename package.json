@@ -59,7 +59,7 @@
     "watch": "tsc -watch -p ./",
     "watch:webview": "vite build --watch",
     "pretest": "npm run compile",
-    "test": "echo \"No tests yet\""
+    "test": "node --test test/**/*.test.js"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",

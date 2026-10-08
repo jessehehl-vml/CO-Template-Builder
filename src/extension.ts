@@ -4,8 +4,12 @@ import * as path from "path";
 import * as http from "http";
 import { LemonPiAuth } from "./auth";
 import { LemonPiApi } from "./api";
+import {
+  BoilerplateGenerator,
+  BoilerplateMessage,
+} from "./boilerplate-generator";
+import { ZipExportService } from "./zip-export";
 
-import { ZipArchive } from "archiver";
 export function activate(context: vscode.ExtensionContext) {
   console.log("[Extension Host] NEW EXTENSION.JS IS RUNNING");
   const auth = new LemonPiAuth(context.secrets);
@@ -56,39 +60,8 @@ class SidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (message.type === "loadProjectState") {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-
-        let hasProject = false;
-
-        if (workspaceFolder) {
-          const settingsPath = path.join(
-            workspaceFolder.uri.fsPath,
-            "settings",
-            "settings.json",
-          );
-
-          if (fs.existsSync(settingsPath)) {
-            try {
-              const content = fs.readFileSync(settingsPath, "utf8");
-              const settings = JSON.parse(content);
-
-              hasProject =
-                settings !== null &&
-                typeof settings === "object" &&
-                !Array.isArray(settings);
-            } catch {
-              hasProject = false;
-            }
-          }
-        }
-
-        const authState = await this.getAuthenticationState();
-
-        webviewView.webview.postMessage({
-          type: "projectStateLoaded",
-          hasProject,
-          ...authState,
-        });
+        await this.loadProjectState(webviewView.webview);
+        return;
       }
       if (message.type === "logout") {
         await this.auth.logout();
@@ -120,6 +93,58 @@ class SidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.getSidebarContent(webviewView.webview);
   }
+
+  private async loadProjectState(webview: vscode.Webview): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    let hasProject = false;
+
+    if (workspaceFolder) {
+      const settingsPath = path.join(
+        workspaceFolder.uri.fsPath,
+        "settings",
+        "settings.json",
+      );
+
+      if (fs.existsSync(settingsPath)) {
+        try {
+          const content = fs.readFileSync(settingsPath, "utf8");
+          const settings = JSON.parse(content);
+
+          hasProject =
+            settings !== null &&
+            typeof settings === "object" &&
+            !Array.isArray(settings);
+        } catch {
+          hasProject = false;
+        }
+      }
+    }
+
+    const authState = await this.getAuthenticationState();
+
+    webview.postMessage({
+      type: "projectStateLoaded",
+      hasProject,
+      ...authState,
+    });
+  }
+
+  private async selectFolder(webview: vscode.Webview): Promise<void> {
+    const result = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: "Select folder",
+    });
+
+    if (result?.[0]) {
+      webview.postMessage({
+        type: "folderSelected",
+        folder: result[0].fsPath,
+      });
+    }
+  }
+
   private async buildCOZip(
     projectName: string,
     dimensionName: string,
@@ -130,132 +155,16 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       throw new Error("No workspace folder is open.");
     }
 
-    const workspacePath = workspaceFolder.uri.fsPath;
-    const srcPath = path.join(workspacePath, "src");
-    const settingsPath = path.join(workspacePath, "settings", "settings.json");
-
-    if (!fs.existsSync(srcPath)) {
-      throw new Error("Could not find the src folder.");
-    }
-
-    if (!fs.existsSync(settingsPath)) {
-      throw new Error("Could not find settings/settings.json.");
-    }
-
-    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-
     const [width, height] = dimensionName.split("x").map(Number);
 
     if (!width || !height) {
       throw new Error(`Invalid dimension: ${dimensionName}`);
     }
 
-    const templateJson = JSON.stringify(
-      {
-        placeholders: settings.placeholders ?? {},
-      },
-      null,
-      2,
-    );
-
-    const exportPath = path.join(workspacePath, "export");
-
-    fs.mkdirSync(exportPath, { recursive: true });
-
-    const stylesPath = path.join(srcPath, "styles.css");
-
-    const baseStyles = fs.existsSync(stylesPath)
-      ? fs.readFileSync(stylesPath, "utf8")
-      : "";
-
-    const files = fs
-      .readdirSync(srcPath, { withFileTypes: true })
-      .filter((entry) => entry.name !== "dimensions");
-
-    const indexPath = path.join(srcPath, "index.html");
-
-    if (!fs.existsSync(indexPath)) {
-      throw new Error("Could not find src/index.html.");
-    }
-
-    const originalIndexHtml = fs.readFileSync(indexPath, "utf8");
-
-    const dimensionCssPath = path.join(
-      srcPath,
-      "dimensions",
-      `${dimensionName}.css`,
-    );
-
-    let mergedStyles = baseStyles;
-
-    if (fs.existsSync(dimensionCssPath)) {
-      const dimensionStyles = fs.readFileSync(dimensionCssPath, "utf8");
-
-      mergedStyles = [
-        baseStyles.trimEnd(),
-        "",
-        `/* Dimension: ${dimensionName} */`,
-        "",
-        dimensionStyles.trim(),
-        "",
-      ].join("\n");
-    }
-
-    let indexHtml = originalIndexHtml;
-
-    const adSizeMeta = `<meta name="ad.size" content="width=${width},height=${height}">`;
-
-    if (/<meta\s+name=["']ad\.size["'][^>]*>/i.test(indexHtml)) {
-      indexHtml = indexHtml.replace(
-        /<meta\s+name=["']ad\.size["'][^>]*>/i,
-        adSizeMeta,
-      );
-    } else {
-      indexHtml = indexHtml.replace(/<\/head>/i, `  ${adSizeMeta}\n</head>`);
-    }
-
-    const zipName = `${projectName}-${dimensionName}.zip`;
-    const zipPath = path.join(exportPath, zipName);
-
-    await new Promise<void>((resolve, reject) => {
-      const output = fs.createWriteStream(zipPath);
-
-      const archive = new ZipArchive({
-        zlib: { level: 9 },
-      });
-
-      output.on("close", resolve);
-
-      output.on("error", reject);
-      archive.on("error", reject);
-
-      archive.pipe(output);
-
-      for (const file of files) {
-        const sourcePath = path.join(srcPath, file.name);
-
-        if (file.isDirectory()) {
-          archive.directory(sourcePath, file.name);
-        } else if (file.name === "styles.css") {
-          archive.append(mergedStyles, {
-            name: "styles.css",
-          });
-        } else if (file.name === "index.html") {
-          archive.append(indexHtml, {
-            name: "index.html",
-          });
-        } else {
-          archive.file(sourcePath, {
-            name: file.name,
-          });
-        }
-      }
-
-      archive.append(templateJson, {
-        name: "template.json",
-      });
-
-      archive.finalize();
+    const [zipPath] = await new ZipExportService().exportProject({
+      workspacePath: workspaceFolder.uri.fsPath,
+      projectName,
+      dimensions: [{ width, height }],
     });
 
     console.log("[CO UPLOAD] ZIP created:", zipPath);
@@ -271,13 +180,7 @@ class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     const workspacePath = workspaceFolder.uri.fsPath;
-    const srcPath = path.join(workspacePath, "src");
     const settingsPath = path.join(workspacePath, "settings", "settings.json");
-
-    if (!fs.existsSync(srcPath)) {
-      vscode.window.showErrorMessage("Could not find the src folder.");
-      return;
-    }
 
     if (!fs.existsSync(settingsPath)) {
       vscode.window.showErrorMessage("Could not find settings/settings.json.");
@@ -286,7 +189,6 @@ class SidebarProvider implements vscode.WebviewViewProvider {
 
     try {
       const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-
       const dimensions = Array.isArray(settings.dimensions)
         ? settings.dimensions
         : [];
@@ -299,183 +201,15 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       }
 
       const projectName = settings.projectName?.trim() || workspaceFolder.name;
-
-      // Build template.json from the configured placeholders.
-      // Only placeholders are exported — project settings such as
-      // projectName, dimensions, agency, advertiser, etc. are excluded.
-      const templateJson = JSON.stringify(
-        {
-          placeholders: settings.placeholders ?? {},
-        },
-        null,
-        2,
-      );
-
-      const exportPath = path.join(workspacePath, "export");
-
-      fs.mkdirSync(exportPath, { recursive: true });
-
-      // Read the base styles once. Dimension-specific CSS is merged
-      // into this in memory for each exported ZIP.
-      const stylesPath = path.join(srcPath, "styles.css");
-
-      const baseStyles = fs.existsSync(stylesPath)
-        ? fs.readFileSync(stylesPath, "utf8")
-        : "";
-
-      // Get all files/directories directly inside src.
-      // The dimensions directory itself is excluded because its CSS
-      // files are merged into styles.css for each export.
-      const files = fs
-        .readdirSync(srcPath, { withFileTypes: true })
-        .filter((entry) => entry.name !== "dimensions");
-
-      const indexPath = path.join(srcPath, "index.html");
-
-      if (!fs.existsSync(indexPath)) {
-        vscode.window.showErrorMessage("Could not find src/index.html.");
-        return;
-      }
-
-      // Read the original index.html once.
-      // Every exported dimension gets its own in-memory version.
-      const originalIndexHtml = fs.readFileSync(indexPath, "utf8");
-
-      for (const dimension of dimensions) {
-        const width = Number(dimension.width);
-        const height = Number(dimension.height);
-
-        if (!width || !height) {
-          continue;
-        }
-
-        const dimensionName = `${width}x${height}`;
-        const zipName = `${projectName}-${dimensionName}.zip`;
-        const zipPath = path.join(exportPath, zipName);
-
-        /*
-         * ------------------------------------------------------------
-         * Build dimension-specific styles.css
-         * ------------------------------------------------------------
-         */
-
-        const dimensionCssPath = path.join(
-          srcPath,
-          "dimensions",
-          `${dimensionName}.css`,
-        );
-
-        let mergedStyles = baseStyles;
-
-        if (fs.existsSync(dimensionCssPath)) {
-          const dimensionStyles = fs.readFileSync(dimensionCssPath, "utf8");
-
-          mergedStyles = [
-            baseStyles.trimEnd(),
-            "",
-            `/* Dimension: ${dimensionName} */`,
-            "",
-            dimensionStyles.trim(),
-            "",
-          ].join("\n");
-        }
-
-        /*
-         * ------------------------------------------------------------
-         * Build dimension-specific index.html
-         * ------------------------------------------------------------
-         */
-
-        let indexHtml = originalIndexHtml;
-
-        const adSizeMeta = `<meta name="ad.size" content="width=${width},height=${height}">`;
-
-        // Replace an existing ad.size meta tag if one exists.
-        if (/<meta\s+name=["']ad\.size["'][^>]*>/i.test(indexHtml)) {
-          indexHtml = indexHtml.replace(
-            /<meta\s+name=["']ad\.size["'][^>]*>/i,
-            adSizeMeta,
-          );
-        } else {
-          // Otherwise insert it before </head>.
-          indexHtml = indexHtml.replace(
-            /<\/head>/i,
-            `  ${adSizeMeta}\n</head>`,
-          );
-        }
-
-        /*
-         * ------------------------------------------------------------
-         * Create ZIP
-         * ------------------------------------------------------------
-         */
-
-        await new Promise<void>((resolve, reject) => {
-          const output = fs.createWriteStream(zipPath);
-
-          const archive = new ZipArchive({
-            zlib: { level: 9 },
-          });
-
-          output.on("close", () => {
-            resolve();
-          });
-
-          output.on("error", reject);
-          archive.on("error", reject);
-
-          archive.pipe(output);
-
-          /*
-           * Add everything directly inside src.
-           *
-           * - styles.css gets replaced with the merged CSS
-           * - index.html gets replaced with the dimension-specific HTML
-           * - all other files are copied unchanged
-           * - dimensions/ is already excluded above
-           */
-          for (const file of files) {
-            const sourcePath = path.join(srcPath, file.name);
-
-            if (file.isDirectory()) {
-              archive.directory(sourcePath, file.name);
-            } else if (file.name === "styles.css") {
-              archive.append(mergedStyles, {
-                name: "styles.css",
-              });
-            } else if (file.name === "index.html") {
-              archive.append(indexHtml, {
-                name: "index.html",
-              });
-            } else {
-              archive.file(sourcePath, {
-                name: file.name,
-              });
-            }
-          }
-
-          /*
-           * Add template.json.
-           *
-           * This contains only:
-           *
-           * {
-           *   "placeholders": { ... }
-           * }
-           *
-           * based directly on settings/settings.json.
-           */
-          archive.append(templateJson, {
-            name: "template.json",
-          });
-
-          archive.finalize();
-        });
-      }
+      const zipPaths = await new ZipExportService().exportProject({
+        workspacePath,
+        projectName,
+        dimensions,
+      });
 
       vscode.window.showInformationMessage(
-        `Export complete: ${dimensions.length} ZIP${
-          dimensions.length === 1 ? "" : "s"
+        `Export complete: ${zipPaths.length} ZIP${
+          zipPaths.length === 1 ? "" : "s"
         } created in the export folder.`,
       );
     } catch (error) {
@@ -1038,6 +772,94 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       ...authState,
     });
   }
+
+  private async getAgencyData() {
+    const user = await this.api.getMe();
+
+    const agencies = Array.from(
+      new Map(
+        user.roles.map((role) => [
+          role.agencyId,
+          {
+            id: role.agencyId,
+            name: role.agencyName,
+          },
+        ]),
+      ).values(),
+    );
+
+    return {
+      agencies,
+      email: user.email,
+      name: user.name,
+    };
+  }
+
+  private async loadAgencyData(
+    panel: vscode.WebviewPanel,
+    unauthenticatedType: "agencyDataLoaded" | "authenticationState",
+  ): Promise<void> {
+    try {
+      const token = await this.auth.getAuthToken();
+
+      if (!token) {
+        panel.webview.postMessage({
+          type: unauthenticatedType,
+          agencies: [],
+          currentAgencyId: null,
+          email: null,
+          name: null,
+          authenticated: false,
+        });
+
+        return;
+      }
+
+      const { agencies, email, name } = await this.getAgencyData();
+
+      panel.webview.postMessage({
+        type: "agencyDataLoaded",
+        agencies,
+        currentAgencyId: null,
+        email,
+        name,
+      });
+    } catch (error) {
+      console.error("[SETTINGS] Failed to load agencies:", error);
+
+      panel.webview.postMessage({
+        type: "agencyDataError",
+        message:
+          error instanceof Error ? error.message : "Could not load agencies.",
+      });
+    }
+  }
+
+  private async handleApiRequest<T>(options: {
+    panel: vscode.WebviewPanel;
+    operation: string;
+    request: () => Promise<T>;
+    successType: string;
+    successPayload: (result: T) => Record<string, unknown>;
+    errorType: string;
+    errorMessage: string;
+    logPrefix: string;
+  }): Promise<void> {
+    try {
+      const result = await options.request();
+      options.panel.webview.postMessage({
+        type: options.successType,
+        ...options.successPayload(result),
+      });
+    } catch (error) {
+      console.error(`${options.logPrefix} Failed:`, error);
+      options.panel.webview.postMessage({
+        type: options.errorType,
+        message: error instanceof Error ? error.message : options.errorMessage,
+      });
+    }
+  }
+
   private async authenticate(): Promise<void> {
     const existingToken = await this.auth.getAuthToken();
 
@@ -1664,54 +1486,7 @@ ${fontLinks}
         return;
       }
       if (message.type === "loadAgencyData") {
-        try {
-          const token = await this.auth.getAuthToken();
-
-          if (!token) {
-            panel.webview.postMessage({
-              type: "agencyDataLoaded",
-              agencies: [],
-              currentAgencyId: null,
-              email: null,
-              name: null,
-            });
-
-            return;
-          }
-
-          const user = await this.api.getMe();
-
-          const agencies = Array.from(
-            new Map(
-              user.roles.map((role) => [
-                role.agencyId,
-                {
-                  id: role.agencyId,
-                  name: role.agencyName,
-                },
-              ]),
-            ).values(),
-          );
-
-          panel.webview.postMessage({
-            type: "agencyDataLoaded",
-            agencies,
-            currentAgencyId: null,
-            email: user.email,
-            name: user.name,
-          });
-        } catch (error) {
-          console.error("[SETTINGS] Failed to load agencies:", error);
-
-          panel.webview.postMessage({
-            type: "agencyDataError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load agencies.",
-          });
-        }
-
+        await this.loadAgencyData(panel, "agencyDataLoaded");
         return;
       }
       if (message.type === "checkAuthentication") {
@@ -1741,47 +1516,31 @@ ${fontLinks}
         return;
       }
       if (message.type === "loadAdvertisers") {
-        try {
-          const advertisers = await this.api.getAdvertisers(message.agencyId);
-
-          panel.webview.postMessage({
-            type: "advertisersLoaded",
-            advertisers,
-          });
-        } catch (error) {
-          console.error("[SETTINGS] Failed to load advertisers:", error);
-
-          panel.webview.postMessage({
-            type: "advertisersError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load advertisers.",
-          });
-        }
+        await this.handleApiRequest({
+          panel,
+          operation: "loadAdvertisers",
+          request: () => this.api.getAdvertisers(message.agencyId),
+          successType: "advertisersLoaded",
+          successPayload: (advertisers) => ({ advertisers }),
+          errorType: "advertisersError",
+          errorMessage: "Could not load advertisers.",
+          logPrefix: "[SETTINGS]",
+        });
 
         return;
       }
       if (message.type === "loadAdsets") {
-        try {
-          const adsets = await this.api.getAdSets(
-            message.agencyId,
-            message.advertiserId,
-          );
-
-          panel.webview.postMessage({
-            type: "adsetsLoaded",
-            adsets,
-          });
-        } catch (error) {
-          console.error("[SETTINGS] Failed to load adsets:", error);
-
-          panel.webview.postMessage({
-            type: "adsetsError",
-            message:
-              error instanceof Error ? error.message : "Could not load adsets.",
-          });
-        }
+        await this.handleApiRequest({
+          panel,
+          operation: "loadAdsets",
+          request: () =>
+            this.api.getAdSets(message.agencyId, message.advertiserId),
+          successType: "adsetsLoaded",
+          successPayload: (adsets) => ({ adsets }),
+          errorType: "adsetsError",
+          errorMessage: "Could not load adsets.",
+          logPrefix: "[SETTINGS]",
+        });
 
         return;
       }
@@ -1829,81 +1588,62 @@ ${fontLinks}
         return;
       }
       if (message.type === "loadPlaceholders") {
-        try {
-          const result = await this.api.getPlaceholders(
-            message.advertiserId,
-            message.adsetId,
-          );
-          panel.webview.postMessage({
-            type: "placeholdersLoaded",
+        await this.handleApiRequest({
+          panel,
+          operation: "loadPlaceholders",
+          request: () =>
+            this.api.getPlaceholders(message.advertiserId, message.adsetId),
+          successType: "placeholdersLoaded",
+          successPayload: (result) => ({
             variants: result.variants,
             collections: result.collections,
-          });
-        } catch (error) {
-          console.error("[SETTINGS] Failed to load placeholders:", error);
-
-          panel.webview.postMessage({
-            type: "placeholdersError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load placeholders.",
-          });
-        }
+          }),
+          errorType: "placeholdersError",
+          errorMessage: "Could not load placeholders.",
+          logPrefix: "[SETTINGS]",
+        });
 
         return;
       }
       if (message.type === "loadCollectionFields") {
-        try {
-          const fields = await this.api.getCollectionFields(
-            message.agencyId,
-            message.advertiserId,
-          );
-
-          panel.webview.postMessage({
-            type: "collectionFieldsLoaded",
-            fields,
-          });
-        } catch (error) {
-          console.error("[SETTINGS] Failed to load collection fields:", error);
-
-          panel.webview.postMessage({
-            type: "collectionFieldsError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load collection fields.",
-          });
-        }
+        await this.handleApiRequest({
+          panel,
+          operation: "loadCollectionFields",
+          request: () =>
+            this.api.getCollectionFields(
+              message.agencyId,
+              message.advertiserId,
+            ),
+          successType: "collectionFieldsLoaded",
+          successPayload: (fields) => ({ fields }),
+          errorType: "collectionFieldsError",
+          errorMessage: "Could not load collection fields.",
+          logPrefix: "[SETTINGS]",
+        });
 
         return;
       }
       if (message.type === "loadProductsBySelector") {
-        try {
-          const products = await this.api.searchProductsBySelector(
-            message.advertiserId,
-            message.selectorId,
-            message.limit ?? 10,
-            message.offset ?? 0,
-          );
-
-          panel.webview.postMessage({
-            type: "productsBySelectorLoaded",
+        await this.handleApiRequest({
+          panel,
+          operation: "loadProductsBySelector",
+          request: () =>
+            this.api.searchProductsBySelector(
+              message.advertiserId,
+              message.selectorId,
+              message.limit ?? 10,
+              message.offset ?? 0,
+            ),
+          successType: "productsBySelectorLoaded",
+          successPayload: (products) => ({
             selectorId: message.selectorId,
             selectorName: message.selectorId,
             products,
-          });
-        } catch (error) {
-          console.error("[WIZARD] Failed to load products:", error);
-
-          panel.webview.postMessage({
-            type: "productsError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load products.",
-          });
-        }
+          }),
+          errorType: "productsError",
+          errorMessage: "Could not load products.",
+          logPrefix: "[WIZARD]",
+        });
 
         return;
       }
@@ -1935,22 +1675,16 @@ ${fontLinks}
       }
 
       if (message.type === "loadCOFonts") {
-        try {
-          const fonts = await this.api.getFonts(message.advertiserId);
-
-          panel.webview.postMessage({
-            type: "coFontsLoaded",
-            fonts,
-          });
-        } catch (error) {
-          console.error("[CO FONTS] Failed to load fonts:", error);
-
-          panel.webview.postMessage({
-            type: "coFontsError",
-            message:
-              error instanceof Error ? error.message : "Could not load fonts.",
-          });
-        }
+        await this.handleApiRequest({
+          panel,
+          operation: "loadCOFonts",
+          request: () => this.api.getFonts(message.advertiserId),
+          successType: "coFontsLoaded",
+          successPayload: (fonts) => ({ fonts }),
+          errorType: "coFontsError",
+          errorMessage: "Could not load fonts.",
+          logPrefix: "[CO FONTS]",
+        });
 
         return;
       }
@@ -1984,6 +1718,58 @@ ${fontLinks}
 
     this.openSettingsPanel(1);
   }
+
+  private async createBoilerplate(
+    message: BoilerplateMessage,
+    panel: vscode.WebviewPanel,
+  ): Promise<void> {
+    if (!message.folder) {
+      throw new Error("No folder selected.");
+    }
+
+    const srcFolder = path.join(message.folder, "src");
+    const settingsFolder = path.join(message.folder, "settings");
+    const files = [
+      path.join(srcFolder, "index.html"),
+      path.join(srcFolder, "script.js"),
+      path.join(srcFolder, "styles.css"),
+      path.join(srcFolder, "Creative.js"),
+      path.join(settingsFolder, "settings.json"),
+      path.join(settingsFolder, "content.json"),
+    ];
+    const existingFiles = files.filter((file) => fs.existsSync(file));
+
+    if (existingFiles.length > 0) {
+      const overwrite = await vscode.window.showWarningMessage(
+        "Some project files already exist. Do you want to overwrite them?",
+        {
+          modal: true,
+        },
+        "Overwrite",
+      );
+
+      if (overwrite !== "Overwrite") {
+        return;
+      }
+    }
+
+    const generator = new BoilerplateGenerator(this.context);
+    generator.generate(message);
+
+    this.sidebarWebview?.webview.postMessage({
+      type: "projectStateLoaded",
+      hasProject: true,
+    });
+
+    vscode.window.showInformationMessage("Creative boilerplate created.");
+
+    await vscode.window.showTextDocument(
+      vscode.Uri.file(path.join(message.folder, "src", "index.html")),
+    );
+
+    panel.dispose();
+  }
+
   private openWizard() {
     const panel = vscode.window.createWebviewPanel(
       "creativeOptimizationsWizard",
@@ -2001,501 +1787,7 @@ ${fontLinks}
 
       if (message.type === "createBoilerplate") {
         try {
-          if (!message.folder) {
-            throw new Error("No folder selected.");
-          }
-
-          const srcFolder = path.join(message.folder, "src");
-          const settingsFolder = path.join(message.folder, "settings");
-
-          const files = [
-            path.join(srcFolder, "index.html"),
-            path.join(srcFolder, "script.js"),
-            path.join(srcFolder, "styles.css"),
-            path.join(srcFolder, "Creative.js"),
-            path.join(settingsFolder, "settings.json"),
-            path.join(settingsFolder, "content.json"),
-          ];
-
-          const existingFiles = files.filter((file) => fs.existsSync(file));
-
-          if (existingFiles.length > 0) {
-            const overwrite = await vscode.window.showWarningMessage(
-              "Some project files already exist. Do you want to overwrite them?",
-              {
-                modal: true,
-              },
-              "Overwrite",
-            );
-
-            if (overwrite !== "Overwrite") {
-              return;
-            }
-          }
-
-          // frame count
-          const frameCount = Number(message.frames ?? 3);
-
-          if (!Number.isInteger(frameCount) || frameCount < 1) {
-            throw new Error(
-              "Number of frames must be a whole number greater than 0.",
-            );
-          }
-
-          fs.mkdirSync(srcFolder, { recursive: true });
-          fs.mkdirSync(settingsFolder, { recursive: true });
-
-          // --------------------------------------------------
-          // Placeholders
-          // --------------------------------------------------
-
-          const allPlaceholders = message.placeholderVariants.flatMap(
-            (variant: any) =>
-              variant.dimensions.flatMap(
-                (dimension: any) => dimension.placeholders,
-              ),
-          );
-
-          const uniquePlaceholders = Array.from(
-            new Map<string, any>(
-              allPlaceholders.map((placeholder: any) => [
-                placeholder.name,
-                placeholder,
-              ]),
-            ).values(),
-          );
-          // Normal placeholders
-          const placeholders: Record<string, unknown> = {};
-
-          for (const placeholder of uniquePlaceholders) {
-            if (placeholder.type === "collection") {
-              continue;
-            }
-
-            placeholders[placeholder.name] = {
-              type: placeholder.type,
-            };
-          }
-
-          // Collection placeholder
-          if (message.collectionMapping) {
-            const collection = message.collectionMapping;
-
-            placeholders[collection.collection] = {
-              placeholders: Object.fromEntries(
-                collection.fields.map(
-                  (field: { placeholder: string; placeholderType: string }) => [
-                    field.placeholder,
-                    {
-                      type: field.placeholderType,
-                    },
-                  ],
-                ),
-              ),
-              type: "collection",
-              intent: collection.intent,
-              items_required: Number(collection.required),
-            };
-          }
-          // --------------------------------------------------
-          // Settings
-          // --------------------------------------------------
-
-          const settings: Record<string, unknown> = {
-            projectName: message.name,
-            createdBy: message.userName ?? "",
-            adsetType: message.dimensionType ?? "single",
-
-            dimensions: message.selectedDimensions.map((size: string) => {
-              const [width, height] = size.split("x").map(Number);
-
-              return {
-                width,
-                height,
-              };
-            }),
-
-            fonts: message.coFonts ?? [],
-
-            selectedFonts: message.selectedFonts.map(
-              (font: { family: string; variant: string; fontUrl: string }) => ({
-                family: font.family,
-                variant: font.variant,
-                fontUrl: font.fontUrl,
-              }),
-            ),
-
-            placeholders,
-          };
-
-          if (message.selectedAgency) {
-            settings.agency = {
-              id: message.selectedAgency.id,
-              name: message.selectedAgency.name,
-            };
-          }
-
-          if (message.selectedAdvertiser) {
-            settings.advertiser = {
-              id: message.selectedAdvertiser.id,
-              name: message.selectedAdvertiser.name,
-            };
-          }
-
-          if (message.selectedAdset) {
-            settings.adset = {
-              id: message.selectedAdset.id,
-              name: message.selectedAdset.name,
-            };
-          }
-
-          fs.writeFileSync(
-            path.join(settingsFolder, "settings.json"),
-            JSON.stringify(settings, null, 2),
-            "utf8",
-          );
-
-          // --------------------------------------------------
-          // Content
-          // --------------------------------------------------
-          const content: Record<string, unknown> = {
-            variants: message.placeholderVariants,
-          };
-
-          if (message.collectionMapping && message.products) {
-            const collection = message.collectionMapping;
-
-            const updatedVariants = message.placeholderVariants.map(
-              (variant: any) => ({
-                ...variant,
-                dimensions: (variant?.dimensions ?? []).map(
-                  (dimension: any) => {
-                    const selectorPlaceholder = (
-                      dimension?.placeholders ?? []
-                    ).find(
-                      (placeholder: any) =>
-                        (placeholder?.name === "product-selector_ID" ||
-                          placeholder?.name === "productSelector") &&
-                        placeholder?.value,
-                    );
-
-                    if (!selectorPlaceholder) {
-                      return dimension;
-                    }
-
-                    const selectorId = String(selectorPlaceholder.value).trim();
-                    const selectorResult = message.products[selectorId];
-
-                    const items = Array.isArray(selectorResult?.products?.items)
-                      ? selectorResult.products.items
-                      : [];
-
-                    const required = Number(collection.required);
-
-                    const uniqueProducts = new Map<string, any>();
-
-                    for (const product of items) {
-                      if (!product?.id) {
-                        continue;
-                      }
-
-                      if (!uniqueProducts.has(product.id)) {
-                        uniqueProducts.set(product.id, product);
-                      }
-
-                      if (uniqueProducts.size >= required) {
-                        break;
-                      }
-                    }
-
-                    const collectionProducts = [...uniqueProducts.values()].map(
-                      (product) => {
-                        const item: Record<string, unknown> = {};
-
-                        for (const field of collection.fields) {
-                          const productFieldName = field.productField;
-
-                          item[field.placeholder] = {
-                            type: field.placeholderType,
-                            value: product?.fields?.[productFieldName] ?? "",
-                          };
-                        }
-
-                        return item;
-                      },
-                    );
-
-                    const placeholders = Array.isArray(dimension.placeholders)
-                      ? [...dimension.placeholders]
-                      : [];
-
-                    // Remove an existing products collection if one exists.
-                    const filteredPlaceholders = placeholders.filter(
-                      (placeholder: any) =>
-                        placeholder?.name !== collection.collection,
-                    );
-
-                    // Put the collection INSIDE placeholders.
-                    filteredPlaceholders.push({
-                      name: collection.collection,
-                      type: "collection",
-                      value: collectionProducts,
-                    });
-
-                    return {
-                      ...dimension,
-                      placeholders: filteredPlaceholders,
-                    };
-                  },
-                ),
-              }),
-            );
-
-            content.variants = updatedVariants;
-
-            content.variants = updatedVariants;
-          }
-
-          fs.writeFileSync(
-            path.join(settingsFolder, "content.json"),
-            JSON.stringify(content, null, 2),
-            "utf8",
-          );
-
-          // --------------------------------------------------
-          // Boilerplate templates
-          // --------------------------------------------------
-
-          const boilerplateFolder = path.join(
-            this.context.extensionPath,
-            "boilerplate",
-          );
-
-          if (!fs.existsSync(boilerplateFolder)) {
-            throw new Error(
-              `Boilerplate templates could not be found: ${boilerplateFolder}`,
-            );
-          }
-
-          const indexTemplate = fs.readFileSync(
-            path.join(boilerplateFolder, "index.html"),
-            "utf8",
-          );
-
-          const scriptTemplate = fs.readFileSync(
-            path.join(boilerplateFolder, "script.js"),
-            "utf8",
-          );
-
-          const stylesTemplate = fs.readFileSync(
-            path.join(boilerplateFolder, "styles.css"),
-            "utf8",
-          );
-          const creativeTemplate = fs.readFileSync(
-            path.join(boilerplateFolder, "Creative.js"),
-            "utf8",
-          );
-          // --------------------------------------------------
-          // Dynamic values
-          // --------------------------------------------------
-
-          const fontLinks = message.selectedFonts
-            .map(
-              (font: { family: string; variant: string; fontUrl: string }) =>
-                `  <link rel="stylesheet" type="text/css" media="all" href="${font.fontUrl}?v=${font.variant}">`,
-            )
-            .join("\n");
-
-          const extensionPackage = this.context.extension.packageJSON;
-
-          const extensionName = extensionPackage.name ?? "Extension";
-          const extensionVersion = extensionPackage.version ?? "0.0.0";
-          const generator = `${extensionName} v${extensionVersion}`;
-
-          const today = new Date().toISOString().slice(0, 10);
-
-          const dimensionSuffix =
-            message.dimensionType === "single" &&
-            message.selectedDimensions?.[0]
-              ? ` - ${message.selectedDimensions[0]}`
-              : "";
-
-          const fontVariables = message.selectedFonts
-            .filter((font: { family: string; variant: string }) =>
-              font.family?.trim(),
-            )
-            .map(
-              (
-                font: {
-                  family: string;
-                  variant: string;
-                },
-                index: number,
-              ) => `  --font${index + 1}: "${font.family}";`,
-            )
-            .join("\n");
-
-          const frameTimelines = Array.from(
-            { length: frameCount },
-            (_, index) => `const frame${index + 1}Timeline = gsap.timeline();`,
-          ).join("\n");
-
-          const frameAnimations = Array.from(
-            { length: frameCount },
-            (_, index) => {
-              const frameNumber = index + 1;
-
-              return `function createFrame${frameNumber}Animation() {
-  frame${frameNumber}Timeline.addLabel("preview-ready");
-}
-
-`;
-            },
-          ).join("");
-
-          const startAnimations = `function startAnimations() {
-${Array.from({ length: frameCount }, (_, index) => {
-  const frameNumber = index + 1;
-
-  return `  createFrame${frameNumber}Animation();
-  const frame${frameNumber}Start = mainTimeline.duration();
-
-  mainTimeline.add(frame${frameNumber}Timeline);
-  mainTimeline.addLabel(
-    "frame${frameNumber}-preview",
-    frame${frameNumber}Start + frame${frameNumber}Timeline.labels["preview-ready"],
-  );`;
-}).join("\n\n")}
-}`;
-          const frameAnimationCode = `${frameAnimations}${startAnimations}`;
-          let placeholderContentCode = "";
-          if (message.autoFillPlaceholderContent) {
-            const placeholderMap = new Map<string, string>();
-
-            for (const variant of message.placeholderVariants ?? []) {
-              for (const dimension of variant.dimensions ?? []) {
-                for (const placeholder of dimension.placeholders ?? []) {
-                  const raw = placeholder as Record<string, unknown>;
-
-                  const name = String(raw.name ?? "").trim();
-
-                  if (!name) {
-                    continue;
-                  }
-
-                  const type = String(raw.type ?? "").toLowerCase();
-
-                  placeholderMap.set(
-                    name,
-                    type === "image" || type === "img" ? "image" : "text",
-                  );
-                }
-              }
-            }
-
-            const lines = Array.from(placeholderMap.entries()).map(
-              ([name, type]) => {
-                const selector = `.${name}`;
-
-                const contentReference = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                  ? `content?.${name}?.value`
-                  : `content?.[${JSON.stringify(name)}]?.value`;
-
-                if (type === "image") {
-                  return `  $("${selector}").attr("src", ${contentReference});`;
-                }
-
-                return `  $("${selector}").html(${contentReference});`;
-              },
-            );
-
-            placeholderContentCode = lines.join("\n");
-          }
-          // click placeholder
-          let interactionCode = ";";
-
-          const clickPlaceholder = (message.placeholderVariants ?? [])
-            .flatMap((variant: any) => variant.dimensions ?? [])
-            .flatMap((dimension: any) => dimension.placeholders ?? [])
-            .find(
-              (placeholder: any) =>
-                String(placeholder.type ?? "").toLowerCase() === "click",
-            );
-
-          if (clickPlaceholder) {
-            interactionCode = `
-    .on("click tap", function () {
-      Creative.click(content.clickUrl.value);
-    })`;
-          }
-          // --------------------------------------------------
-          // Populate templates
-          // --------------------------------------------------
-
-          const indexHtml = indexTemplate
-            .replaceAll("{{GENERATOR}}", generator)
-            .replace("{{FONT_LINKS}}", fontLinks);
-          const scriptJs = scriptTemplate
-            .replaceAll("{{PROJECT_NAME}}", message.name)
-            .replaceAll("{{DIMENSION_SUFFIX}}", dimensionSuffix)
-            .replaceAll("{{OWNER}}", message.userName ?? "")
-            .replaceAll("{{DATE}}", today)
-            .replace("/* FRAME_TIMELINES */", frameTimelines)
-            .replace("/* FRAME_ANIMATIONS */", frameAnimationCode)
-            .replace(
-              "/* AUTO_FILL_PLACEHOLDER_CONTENT */",
-              placeholderContentCode,
-            )
-            .replace("/* INTERACTION_CODE */", interactionCode);
-          const creativeJs = creativeTemplate.replace(
-            "/* FRAME_COUNT */ 1",
-            String(frameCount),
-          );
-          const stylesCss = stylesTemplate.replace(
-            "/* FONT_VARIABLES */",
-            fontVariables,
-          );
-
-          // --------------------------------------------------
-          // Write generated files
-          // --------------------------------------------------
-
-          fs.writeFileSync(
-            path.join(srcFolder, "index.html"),
-            indexHtml,
-            "utf8",
-          );
-
-          fs.writeFileSync(path.join(srcFolder, "script.js"), scriptJs, "utf8");
-
-          fs.writeFileSync(
-            path.join(srcFolder, "Creative.js"),
-            creativeJs,
-            "utf8",
-          );
-
-          fs.writeFileSync(
-            path.join(srcFolder, "styles.css"),
-            stylesCss,
-            "utf8",
-          );
-
-          // --------------------------------------------------
-          // Finish
-          // --------------------------------------------------
-
-          this.sidebarWebview?.webview.postMessage({
-            type: "projectStateLoaded",
-            hasProject: true,
-          });
-
-          vscode.window.showInformationMessage("Creative boilerplate created.");
-
-          await vscode.window.showTextDocument(
-            vscode.Uri.file(path.join(message.folder, "src", "index.html")),
-          );
-
-          panel.dispose();
+          await this.createBoilerplate(message, panel);
         } catch (error) {
           console.error("[BOILERPLATE] Failed:", error);
 
@@ -2506,6 +1798,7 @@ ${Array.from({ length: frameCount }, (_, index) => {
           );
         }
       }
+
       if (message.type === "loadWorkspaceFolder") {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 
@@ -2516,19 +1809,8 @@ ${Array.from({ length: frameCount }, (_, index) => {
       }
 
       if (message.type === "selectFolder") {
-        const result = await vscode.window.showOpenDialog({
-          canSelectFiles: false,
-          canSelectFolders: true,
-          canSelectMany: false,
-          openLabel: "Select folder",
-        });
-
-        if (result?.[0]) {
-          panel.webview.postMessage({
-            type: "folderSelected",
-            folder: result[0].fsPath,
-          });
-        }
+        await this.selectFolder(panel.webview);
+        return;
       }
       if (message.type === "connectToCreativeOptimizations") {
         console.log("[EXT AUTH] connectToCreativeOptimizations received");
@@ -2540,223 +1822,113 @@ ${Array.from({ length: frameCount }, (_, index) => {
         return;
       }
       if (message.type === "loadPlaceholders") {
-        try {
-          const result = await this.api.getPlaceholders(
-            message.advertiserId,
-            message.adsetId,
-          );
-          panel.webview.postMessage({
-            type: "placeholdersLoaded",
+        await this.handleApiRequest({
+          panel,
+          operation: "loadPlaceholders",
+          request: () =>
+            this.api.getPlaceholders(message.advertiserId, message.adsetId),
+          successType: "placeholdersLoaded",
+          successPayload: (result) => ({
             variants: result.variants,
             collections: result.collections,
-          });
-        } catch (error) {
-          console.error("[WIZARD] Failed to load placeholders:", error);
-
-          panel.webview.postMessage({
-            type: "placeholdersError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load placeholders.",
-          });
-        }
+          }),
+          errorType: "placeholdersError",
+          errorMessage: "Could not load placeholders.",
+          logPrefix: "[WIZARD]",
+        });
+        return;
       }
       if (message.type === "loadAdvertisers") {
-        try {
-          const advertisers = await this.api.getAdvertisers(message.agencyId);
-
-          panel.webview.postMessage({
-            type: "advertisersLoaded",
-            advertisers,
-          });
-        } catch (error) {
-          console.error("Failed to load advertisers:", error);
-
-          panel.webview.postMessage({
-            type: "advertisersError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load advertisers.",
-          });
-        }
+        await this.handleApiRequest({
+          panel,
+          operation: "loadAdvertisers",
+          request: () => this.api.getAdvertisers(message.agencyId),
+          successType: "advertisersLoaded",
+          successPayload: (advertisers) => ({ advertisers }),
+          errorType: "advertisersError",
+          errorMessage: "Could not load advertisers.",
+          logPrefix: "[WIZARD]",
+        });
+        return;
       }
       if (message.type === "loadAdsets") {
-        try {
-          const adsets = await this.api.getAdSets(
-            message.agencyId,
-            message.advertiserId,
-          );
-
-          panel.webview.postMessage({
-            type: "adsetsLoaded",
-            adsets,
-          });
-        } catch (error) {
-          console.error("Failed to load adsets:", error);
-
-          panel.webview.postMessage({
-            type: "adsetsError",
-            message:
-              error instanceof Error ? error.message : "Could not load adsets.",
-          });
-        }
+        await this.handleApiRequest({
+          panel,
+          operation: "loadAdsets",
+          request: () =>
+            this.api.getAdSets(message.agencyId, message.advertiserId),
+          successType: "adsetsLoaded",
+          successPayload: (adsets) => ({ adsets }),
+          errorType: "adsetsError",
+          errorMessage: "Could not load adsets.",
+          logPrefix: "[WIZARD]",
+        });
+        return;
       }
       if (message.type === "loadProductsBySelector") {
-        try {
-          const selector = await this.api.getProductSelector(
-            message.advertiserId,
-            message.selectorId,
-          );
+        await this.handleApiRequest({
+          panel,
+          operation: "loadProductsBySelector",
+          request: async () => {
+            const selector = await this.api.getProductSelector(
+              message.advertiserId,
+              message.selectorId,
+            );
+            const products = await this.api.searchProductsBySelector(
+              message.advertiserId,
+              message.selectorId,
+              message.limit ?? 10,
+              message.offset ?? 0,
+            );
 
-          const result = await this.api.searchProductsBySelector(
-            message.advertiserId,
-            message.selectorId,
-            message.limit ?? 10,
-            message.offset ?? 0,
-          );
-
-          panel.webview.postMessage({
-            type: "productsBySelectorLoaded",
+            return { selector, products };
+          },
+          successType: "productsBySelectorLoaded",
+          successPayload: ({ selector, products }) => ({
             selectorId: message.selectorId,
             selectorName: selector.name,
-            products: result,
-          });
-        } catch (error) {
-          console.error(
-            `[WIZARD] Failed to load products for selector ${message.selectorId}:`,
-            error,
-          );
-
-          panel.webview.postMessage({
-            type: "productsBySelectorError",
-            selectorId: message.selectorId,
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load products.",
-          });
-        }
-
+            products,
+          }),
+          errorType: "productsBySelectorError",
+          errorMessage: "Could not load products.",
+          logPrefix: "[WIZARD]",
+        });
         return;
       }
       if (message.type === "loadCollectionFields") {
-        try {
-          await this.authenticate();
-
-          const fields = await this.api.getCollectionFields(
-            message.agencyId,
-            message.advertiserId,
-          );
-
-          panel.webview.postMessage({
-            type: "collectionFieldsLoaded",
-            fields,
-          });
-        } catch (error) {
-          console.error("[SETTINGS] Failed to load collection fields:", error);
-
-          panel.webview.postMessage({
-            type: "collectionFieldsError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load collection fields.",
-          });
-        }
-
+        await this.handleApiRequest({
+          panel,
+          operation: "loadCollectionFields",
+          request: async () => {
+            await this.authenticate();
+            return this.api.getCollectionFields(
+              message.agencyId,
+              message.advertiserId,
+            );
+          },
+          successType: "collectionFieldsLoaded",
+          successPayload: (fields) => ({ fields }),
+          errorType: "collectionFieldsError",
+          errorMessage: "Could not load collection fields.",
+          logPrefix: "[SETTINGS]",
+        });
         return;
       }
       if (message.type === "loadAgencyData") {
-        console.log("[EXT AGENCY] loadAgencyData received");
-
-        try {
-          const token = await this.auth.getAuthToken();
-
-          console.log("[EXT AGENCY] Auth token:", {
-            hasToken: !!token,
-          });
-
-          if (!token) {
-            console.warn(
-              "[EXT AGENCY] No auth token - authentication required",
-            );
-
-            panel.webview.postMessage({
-              type: "authenticationState",
-              authenticated: false,
-              email: null,
-              name: null,
-            });
-
-            return;
-          }
-
-          console.log("[EXT AGENCY] Calling api.getMe()");
-
-          const user = await this.api.getMe();
-
-          console.log("[EXT AGENCY] getMe() returned:", {
-            email: user.email,
-            name: user.name,
-            rolesCount: user.roles?.length,
-            roles: user.roles,
-          });
-
-          const agencies = Array.from(
-            new Map(
-              user.roles.map((role) => [
-                role.agencyId,
-                {
-                  id: role.agencyId,
-                  name: role.agencyName,
-                },
-              ]),
-            ).values(),
-          );
-
-          console.log("[EXT AGENCY] Derived agencies:", agencies);
-
-          panel.webview.postMessage({
-            type: "agencyDataLoaded",
-            agencies,
-            currentAgencyId: null,
-            email: user.email,
-            name: user.name,
-          });
-
-          console.log("[EXT AGENCY] agencyDataLoaded message sent");
-        } catch (error) {
-          console.error("[EXT AGENCY] Failed to load agencies:", error);
-
-          panel.webview.postMessage({
-            type: "agencyDataError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load agencies.",
-          });
-        }
+        await this.loadAgencyData(panel, "authenticationState");
+        return;
       }
       if (message.type === "loadCOFonts") {
-        try {
-          const fonts = await this.api.getFonts(message.advertiserId);
-          panel.webview.postMessage({
-            type: "coFontsLoaded",
-            fonts,
-          });
-        } catch (error) {
-          console.error("[CO FONTS] Failed to load fonts:", error);
-
-          panel.webview.postMessage({
-            type: "coFontsError",
-            message:
-              error instanceof Error ? error.message : "Could not load fonts.",
-            unauthorized:
-              error instanceof Error && error.message.includes("(401)"),
-          });
-        }
+        await this.handleApiRequest({
+          panel,
+          operation: "loadCOFonts",
+          request: () => this.api.getFonts(message.advertiserId),
+          successType: "coFontsLoaded",
+          successPayload: (fonts) => ({ fonts }),
+          errorType: "coFontsError",
+          errorMessage: "Could not load fonts.",
+          logPrefix: "[CO FONTS]",
+        });
       }
     });
 

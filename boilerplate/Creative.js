@@ -80,58 +80,7 @@ window.Creative = {
   awaitAll: function () {
     return Promise.all(this.waits);
   },
-  autoScaleFont: function (minSize = 8, selector = "[data-font_autoscale]") {
-    const elements = $(selector).toArray();
-
-    return Promise.all(
-      elements.map((element) => {
-        return new Promise((resolve) => {
-          const parent = element;
-          const child = parent.firstElementChild;
-
-          if (!child) {
-            resolve();
-            return;
-          }
-
-          const styles = window.getComputedStyle(parent);
-
-          let fontSize = parseFloat(styles.fontSize);
-          const maxHeight = parseFloat(styles.maxHeight);
-          const parentWidth = parent.getBoundingClientRect().width;
-
-          if (
-            !Number.isFinite(fontSize) ||
-            !Number.isFinite(maxHeight) ||
-            !parentWidth
-          ) {
-            resolve();
-            return;
-          }
-
-          const fits = () => {
-            const rect = child.getBoundingClientRect();
-
-            return rect.height <= maxHeight && rect.width <= parentWidth;
-          };
-
-          const reduceFontSize = () => {
-            if (fits() || fontSize <= minSize) {
-              resolve();
-              return;
-            }
-
-            fontSize -= 0.5;
-            parent.style.fontSize = `${fontSize}px`;
-
-            requestAnimationFrame(reduceFontSize);
-          };
-
-          requestAnimationFrame(reduceFontSize);
-        });
-      }),
-    );
-  },
+  /* AUTO_SCALE_FONT */
   click: function (url, query) {
     window.dispatchEvent(
       new CustomEvent("lemonpi.interaction/click", {

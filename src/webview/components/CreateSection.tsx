@@ -7,6 +7,8 @@ type CreateSectionProps = {
   setFrameCount: React.Dispatch<React.SetStateAction<number>>;
   autoFillPlaceholderContent: boolean;
   setAutoFillPlaceholderContent: React.Dispatch<React.SetStateAction<boolean>>;
+  autoScaleFonts: boolean;
+  setAutoScaleFonts: React.Dispatch<React.SetStateAction<boolean>>;
   onExport: () => void;
 };
 export default function CreateSection({
@@ -18,6 +20,8 @@ export default function CreateSection({
   setFrameCount,
   autoFillPlaceholderContent,
   setAutoFillPlaceholderContent,
+  autoScaleFonts,
+  setAutoScaleFonts,
   onExport,
 }: CreateSectionProps) {
   return (
@@ -82,6 +86,17 @@ export default function CreateSection({
               {autoFillPlaceholderContent ? "✓" : ""}{" "}
             </div>{" "}
             <span>Auto-fill placeholder content</span>{" "}
+          </div>{" "}
+        </div>
+        <div
+          className="create-option"
+          onClick={() => setAutoScaleFonts((current) => !current)}
+        >
+          {" "}
+          <div className="create-checkbox-label">
+            {" "}
+            <div className="checkbox"> {autoScaleFonts ? "✓" : ""} </div>{" "}
+            <span>Auto-scale fonts</span>{" "}
           </div>{" "}
         </div>
       </div>{" "}
