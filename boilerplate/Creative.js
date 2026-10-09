@@ -55,26 +55,28 @@ window.Creative = {
     return wait;
   },
   waits: [document.fonts.ready],
-  addWait: function (element) {
-    const el = element instanceof jQuery ? element[0] : element;
+  addWait: function (...elements) {
+    const waits = elements
+      .flatMap((element) =>
+        element instanceof jQuery ? element.toArray() : [element],
+      )
+      .filter(Boolean)
+      .map(
+        (el) =>
+          new Promise((resolve) => {
+            if (el.complete) {
+              resolve();
+              return;
+            }
 
-    if (!el) {
-      return;
-    }
+            el.addEventListener("load", resolve, { once: true });
+            el.addEventListener("error", resolve, { once: true });
+          }),
+      );
 
-    const wait = new Promise((resolve) => {
-      if (el.complete) {
-        resolve();
-        return;
-      }
+    this.waits.push(...waits);
 
-      el.addEventListener("load", resolve, { once: true });
-      el.addEventListener("error", resolve, { once: true });
-    });
-
-    this.waits.push(wait);
-
-    return wait;
+    return Promise.all(waits);
   },
 
   awaitAll: function () {

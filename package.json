@@ -17,7 +17,8 @@
     "LICENSE",
     "node_modules/**",
     "boilerplate/**",
-    "preview/**"
+    "preview/**",
+    "qa/**"
   ],
   "categories": [
     "Other"

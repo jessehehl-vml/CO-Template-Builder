@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import * as http from "http";
 import { LemonPiAuth } from "./auth";
 import { LemonPiApi } from "./api";
 import {
@@ -9,17 +8,38 @@ import {
   BoilerplateMessage,
 } from "./boilerplate-generator";
 import { ZipExportService } from "./zip-export";
+import { PreviewServer } from "./preview-server";
+import { BannerReviewService } from "./banner-review";
+import type {
+  CoExportMessage,
+  CommonPanelMessage,
+  SettingsPanelMessage,
+  SidebarMessage,
+  WizardPanelMessage,
+} from "./messages";
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export function activate(context: vscode.ExtensionContext) {
   console.log("[Extension Host] NEW EXTENSION.JS IS RUNNING");
   const auth = new LemonPiAuth(context.secrets);
   const api = new LemonPiApi(auth);
+  const reviewService = new BannerReviewService(context.extensionPath);
+  const previewServer = new PreviewServer(context.extensionPath, {
+    lint: (workspacePath) => reviewService.lint(workspacePath),
+    review: (workspacePath, onProgress) =>
+      reviewService.review(workspacePath, onProgress),
+  });
+  context.subscriptions.push(previewServer);
 
   const sidebarProvider = new SidebarProvider(
     context.extensionUri,
     context,
     auth,
     api,
+    previewServer,
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -35,14 +55,13 @@ class SidebarProvider implements vscode.WebviewViewProvider {
   private sidebarWebview: vscode.WebviewView | null = null;
   private settingsPanel: vscode.WebviewPanel | null = null;
   private wizardPanel: vscode.WebviewPanel | null = null;
-  private exportPanel: vscode.WebviewPanel | null = null;
   private exportOnReady = false;
-  private previewServer: http.Server | null = null;
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly context: vscode.ExtensionContext,
     private readonly auth: LemonPiAuth,
     private readonly api: LemonPiApi,
+    private readonly previewServer: PreviewServer,
   ) {}
   resolveWebviewView(webviewView: vscode.WebviewView) {
     this.sidebarWebview = webviewView;
@@ -50,48 +69,43 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
     };
 
-    webviewView.webview.onDidReceiveMessage(async (message) => {
-      if (message.type === "checkAuthentication") {
-        await this.sendAuthenticationState(webviewView.webview);
-        return;
-      }
-      if (message.type === "openExport") {
-        this.openExportPanel();
-        return;
-      }
-      if (message.type === "loadProjectState") {
-        await this.loadProjectState(webviewView.webview);
-        return;
-      }
-      if (message.type === "logout") {
-        await this.auth.logout();
-        await this.broadcastAuthenticationState();
-        return;
-      }
-      if (message.type === "exportToZip") {
-        await this.exportToZip();
-      }
-      if (message.type === "createNewTemplate") {
-        this.openWizard();
-        return;
-      }
-      if (message.type === "openSettingsSection") {
-        this.openSettingsPanel(message.section);
-
-        return;
-      }
-
-      if (message.type === "openPreview") {
-        this.openPreview();
-        return;
-      }
-      if (message.type === "connectToCreativeOptimizations") {
-        await this.login(webviewView.webview);
-        return;
+    webviewView.webview.onDidReceiveMessage(async (message: SidebarMessage) => {
+      switch (message.type) {
+        case "checkAuthentication":
+          await this.sendAuthenticationState(webviewView.webview);
+          return;
+        case "openExport":
+          this.openExportPanel();
+          return;
+        case "loadProjectState":
+          await this.loadProjectState(webviewView.webview);
+          return;
+        case "logout":
+          await this.auth.logout();
+          await this.broadcastAuthenticationState();
+          return;
+        case "exportToZip":
+          await this.exportToZip();
+          return;
+        case "createNewTemplate":
+          this.openWizard();
+          return;
+        case "openSettingsSection":
+          this.openSettingsPanel(message.section);
+          return;
+        case "openPreview":
+          this.previewServer.open();
+          return;
+        case "connectToCreativeOptimizations":
+          await this.login(webviewView.webview);
+          return;
       }
     });
 
-    webviewView.webview.html = this.getSidebarContent(webviewView.webview);
+    webviewView.webview.html = this.getWebviewHtml(
+      webviewView.webview,
+      "index.html",
+    );
   }
 
   private async loadProjectState(webview: vscode.Webview): Promise<void> {
@@ -221,459 +235,6 @@ class SidebarProvider implements vscode.WebviewViewProvider {
         }`,
       );
     }
-  }
-  private openPreview() {
-    const port = 3001;
-
-    if (this.previewServer) {
-      vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
-      return;
-    }
-
-    const previewClients = new Set<http.ServerResponse>();
-
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-
-    const server = http.createServer((req, res) => {
-      if (!workspaceFolder) {
-        res.writeHead(500);
-        res.end("No workspace folder");
-        return;
-      }
-
-      const requestPath = decodeURIComponent((req.url ?? "/").split("?")[0]);
-
-      // --------------------------------------------------
-      // Preview events / SSE
-      // --------------------------------------------------
-
-      if (requestPath === "/preview-events") {
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        });
-
-        res.write("data: connected\n\n");
-
-        previewClients.add(res);
-
-        req.on("close", () => {
-          previewClients.delete(res);
-        });
-
-        return;
-      }
-
-      // --------------------------------------------------
-      // Preview CSS
-      // --------------------------------------------------
-
-      if (requestPath === "/preview.css") {
-        const filePath = path.join(
-          this.context.extensionPath,
-          "preview",
-          "preview.css",
-        );
-
-        if (!fs.existsSync(filePath)) {
-          res.writeHead(404);
-          res.end("preview.css not found");
-          return;
-        }
-
-        res.writeHead(200, {
-          "Content-Type": "text/css",
-        });
-
-        res.end(fs.readFileSync(filePath, "utf8"));
-        return;
-      }
-
-      // --------------------------------------------------
-      // Preview JS
-      // --------------------------------------------------
-
-      if (requestPath === "/preview.js") {
-        const filePath = path.join(
-          this.context.extensionPath,
-          "preview",
-          "preview.js",
-        );
-
-        if (!fs.existsSync(filePath)) {
-          res.writeHead(404);
-          res.end("preview.js not found");
-          return;
-        }
-
-        res.writeHead(200, {
-          "Content-Type": "application/javascript",
-        });
-
-        res.end(fs.readFileSync(filePath, "utf8"));
-        return;
-      }
-      // --------------------------------------------------
-      // Storyboard files
-      // --------------------------------------------------
-
-      if (requestPath === "/storyboards/find") {
-        const storyboardsFolder = path.join(
-          workspaceFolder.uri.fsPath,
-          "storyboards",
-        );
-
-        const url = new URL(
-          `http://localhost${req.url ?? "/storyboards/find"}`,
-        );
-
-        const width = Number(url.searchParams.get("width"));
-        const height = Number(url.searchParams.get("height"));
-        const frame = Number(url.searchParams.get("frame"));
-
-        console.log("[STORYBOARD] Lookup:", {
-          width,
-          height,
-          frame,
-          folder: storyboardsFolder,
-        });
-
-        if (!width || !height || !frame) {
-          console.warn("[STORYBOARD] Invalid lookup parameters");
-
-          res.writeHead(400, {
-            "Content-Type": "application/json",
-          });
-
-          res.end(
-            JSON.stringify({
-              error: "width, height and frame are required",
-            }),
-          );
-
-          return;
-        }
-
-        if (!fs.existsSync(storyboardsFolder)) {
-          console.warn(
-            "[STORYBOARD] Folder does not exist:",
-            storyboardsFolder,
-          );
-
-          res.writeHead(404, {
-            "Content-Type": "application/json",
-          });
-
-          res.end(
-            JSON.stringify({
-              error: "Storyboard folder not found",
-            }),
-          );
-
-          return;
-        }
-
-        const dimension = `${width}x${height}`;
-        const frameName = `frame${frame}`;
-
-        const imageExtensions = new Set([
-          ".jpg",
-          ".jpeg",
-          ".png",
-          ".gif",
-          ".webp",
-          ".avif",
-          ".bmp",
-          ".svg",
-        ]);
-
-        const files = fs.readdirSync(storyboardsFolder);
-
-        console.log("[STORYBOARD] Files found:", files);
-
-        const matches = files.filter((fileName) => {
-          const extension = path.extname(fileName).toLowerCase();
-
-          if (!imageExtensions.has(extension)) {
-            return false;
-          }
-
-          const lowerName = fileName.toLowerCase();
-
-          return (
-            lowerName.includes(dimension.toLowerCase()) &&
-            lowerName.includes(frameName.toLowerCase())
-          );
-        });
-
-        console.log("[STORYBOARD] Matches:", matches);
-
-        if (matches.length === 0) {
-          console.warn("[STORYBOARD] No matching image found:", {
-            dimension,
-            frameName,
-          });
-
-          res.writeHead(404, {
-            "Content-Type": "application/json",
-          });
-
-          res.end(
-            JSON.stringify({
-              error: "Storyboard image not found",
-              width,
-              height,
-              frame,
-            }),
-          );
-
-          return;
-        }
-
-        if (matches.length > 1) {
-          console.warn("[STORYBOARD] Multiple matching images found:", matches);
-        }
-
-        const fileName = matches[0];
-
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-        });
-
-        res.end(
-          JSON.stringify({
-            fileName,
-            path: `/storyboards/${encodeURIComponent(fileName)}`,
-          }),
-        );
-
-        return;
-      }
-
-      // --------------------------------------------------
-      // Storyboard static files
-      // --------------------------------------------------
-
-      if (requestPath.startsWith("/storyboards/")) {
-        const storyboardsFolder = path.join(
-          workspaceFolder.uri.fsPath,
-          "storyboards",
-        );
-
-        const relativePath = requestPath.slice("/storyboards/".length);
-        const filePath = path.join(storyboardsFolder, relativePath);
-
-        const resolvedStoryboardsFolder = path.resolve(storyboardsFolder);
-        const resolvedFilePath = path.resolve(filePath);
-
-        // Prevent path traversal outside storyboards/
-        if (
-          resolvedFilePath !== resolvedStoryboardsFolder &&
-          !resolvedFilePath.startsWith(resolvedStoryboardsFolder + path.sep)
-        ) {
-          res.writeHead(403);
-          res.end("Forbidden");
-          return;
-        }
-
-        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-          res.writeHead(404);
-          res.end("File not found");
-          return;
-        }
-
-        const extension = path.extname(filePath).toLowerCase();
-
-        const contentTypes: Record<string, string> = {
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".png": "image/png",
-          ".gif": "image/gif",
-          ".webp": "image/webp",
-          ".avif": "image/avif",
-          ".bmp": "image/bmp",
-          ".svg": "image/svg+xml",
-        };
-
-        res.writeHead(200, {
-          "Content-Type": contentTypes[extension] ?? "application/octet-stream",
-        });
-
-        res.end(fs.readFileSync(filePath));
-        return;
-      }
-      // --------------------------------------------------
-      // Workspace src files
-      // --------------------------------------------------
-
-      if (requestPath.startsWith("/src/")) {
-        const srcFolder = path.join(workspaceFolder.uri.fsPath, "src");
-
-        const relativePath = requestPath.slice("/src/".length);
-        const filePath = path.join(srcFolder, relativePath);
-
-        const resolvedSrcFolder = path.resolve(srcFolder);
-        const resolvedFilePath = path.resolve(filePath);
-
-        // Prevent path traversal outside src/
-        if (
-          resolvedFilePath !== resolvedSrcFolder &&
-          !resolvedFilePath.startsWith(resolvedSrcFolder + path.sep)
-        ) {
-          res.writeHead(403);
-          res.end("Forbidden");
-          return;
-        }
-
-        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-          res.writeHead(404);
-          res.end("File not found");
-          return;
-        }
-
-        const extension = path.extname(filePath).toLowerCase();
-
-        const contentTypes: Record<string, string> = {
-          ".html": "text/html",
-          ".js": "application/javascript",
-          ".css": "text/css",
-          ".json": "application/json",
-          ".svg": "image/svg+xml",
-          ".png": "image/png",
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".gif": "image/gif",
-          ".webp": "image/webp",
-          ".woff": "font/woff",
-          ".woff2": "font/woff2",
-          ".ttf": "font/ttf",
-          ".otf": "font/otf",
-        };
-
-        res.writeHead(200, {
-          "Content-Type": contentTypes[extension] ?? "application/octet-stream",
-        });
-
-        res.end(fs.readFileSync(filePath));
-        return;
-      }
-
-      // --------------------------------------------------
-      // Preview application
-      // --------------------------------------------------
-
-      const previewPath = path.join(
-        this.context.extensionPath,
-        "preview",
-        "index.html",
-      );
-
-      if (!fs.existsSync(previewPath)) {
-        res.writeHead(404);
-        res.end("Preview file not found");
-        return;
-      }
-
-      res.writeHead(200, {
-        "Content-Type": "text/html",
-      });
-
-      let html = fs.readFileSync(previewPath, "utf8");
-
-      let projectName = "Preview";
-
-      let dimensions: {
-        width: number;
-        height: number;
-      }[] = [];
-
-      let variants: {
-        contentId: string;
-        variantId: number | string | null;
-      }[] = [];
-
-      // --------------------------------------------------
-      // Load settings
-      // --------------------------------------------------
-
-      const settingsPath = path.join(
-        workspaceFolder.uri.fsPath,
-        "settings",
-        "settings.json",
-      );
-
-      if (fs.existsSync(settingsPath)) {
-        try {
-          const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-
-          projectName = settings.projectName?.trim() || "Preview";
-
-          dimensions = Array.isArray(settings.dimensions)
-            ? settings.dimensions
-            : [];
-        } catch (error) {
-          console.error("[PREVIEW] Failed to read settings:", error);
-        }
-      }
-
-      // --------------------------------------------------
-      // Load content
-      // --------------------------------------------------
-
-      const contentPath = path.join(
-        workspaceFolder.uri.fsPath,
-        "settings",
-        "content.json",
-      );
-
-      if (fs.existsSync(contentPath)) {
-        try {
-          const content = JSON.parse(fs.readFileSync(contentPath, "utf8"));
-
-          variants = Array.isArray(content.variants) ? content.variants : [];
-        } catch (error) {
-          console.error("[PREVIEW] Failed to read content:", error);
-        }
-      }
-
-      // --------------------------------------------------
-      // Data exposed to preview.js
-      // --------------------------------------------------
-
-      const previewData = {
-        projectName,
-        dimensions,
-        variants,
-      };
-
-      console.log("[PREVIEW] Data:", JSON.stringify(previewData, null, 2));
-
-      html = html.replace(
-        "</head>",
-        `<script>
-  window.__PREVIEW_DATA__ = ${JSON.stringify(previewData)};
-</script>
-</head>`,
-      );
-
-      res.end(html);
-    });
-
-    this.previewServer = server;
-
-    server.on("error", (error) => {
-      console.error("[PREVIEW] Server error:", error);
-
-      if (this.previewServer === server) {
-        this.previewServer = null;
-      }
-    });
-
-    server.listen(port, "127.0.0.1", () => {
-      vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
-    });
   }
   private async login(webview: vscode.Webview) {
     try {
@@ -858,6 +419,296 @@ class SidebarProvider implements vscode.WebviewViewProvider {
         message: error instanceof Error ? error.message : options.errorMessage,
       });
     }
+  }
+
+  private async handleCommonPanelMessage(
+    message: CommonPanelMessage,
+    panel: vscode.WebviewPanel,
+    logPrefix: string,
+  ): Promise<void> {
+    switch (message.type) {
+      case "checkAuthentication":
+        await this.sendAuthenticationState(panel.webview);
+        return;
+      case "connectToCreativeOptimizations":
+        await this.login(panel.webview);
+        return;
+      case "loadWorkspaceFolder":
+        panel.webview.postMessage({
+          type: "workspaceFolderLoaded",
+          folder: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
+        });
+        return;
+      case "loadAdvertisers":
+        await this.handleApiRequest({
+          panel,
+          operation: "loadAdvertisers",
+          request: () => this.api.getAdvertisers(message.agencyId),
+          successType: "advertisersLoaded",
+          successPayload: (advertisers) => ({ advertisers }),
+          errorType: "advertisersError",
+          errorMessage: "Could not load advertisers.",
+          logPrefix,
+        });
+        return;
+      case "loadAdsets":
+        await this.handleApiRequest({
+          panel,
+          operation: "loadAdsets",
+          request: () =>
+            this.api.getAdSets(message.agencyId, message.advertiserId),
+          successType: "adsetsLoaded",
+          successPayload: (adsets) => ({ adsets }),
+          errorType: "adsetsError",
+          errorMessage: "Could not load adsets.",
+          logPrefix,
+        });
+        return;
+      case "loadPlaceholders":
+        await this.handleApiRequest({
+          panel,
+          operation: "loadPlaceholders",
+          request: () =>
+            this.api.getPlaceholders(message.advertiserId, message.adsetId),
+          successType: "placeholdersLoaded",
+          successPayload: (result) => ({
+            variants: result.variants,
+            collections: result.collections,
+          }),
+          errorType: "placeholdersError",
+          errorMessage: "Could not load placeholders.",
+          logPrefix,
+        });
+        return;
+      case "loadCollectionFields":
+        await this.handleApiRequest({
+          panel,
+          operation: "loadCollectionFields",
+          request: async () => {
+            await this.authenticate();
+            return this.api.getCollectionFields(
+              message.agencyId,
+              message.advertiserId,
+            );
+          },
+          successType: "collectionFieldsLoaded",
+          successPayload: (fields) => ({ fields }),
+          errorType: "collectionFieldsError",
+          errorMessage: "Could not load collection fields.",
+          logPrefix,
+        });
+        return;
+      case "loadProductsBySelector":
+        await this.handleApiRequest({
+          panel,
+          operation: "loadProductsBySelector",
+          request: async () => {
+            const selector = await this.api.getProductSelector(
+              message.advertiserId,
+              message.selectorId,
+            );
+            const products = await this.api.searchProductsBySelector(
+              message.advertiserId,
+              message.selectorId,
+              message.limit ?? 10,
+              message.offset ?? 0,
+            );
+
+            return { selector, products };
+          },
+          successType: "productsBySelectorLoaded",
+          successPayload: ({ selector, products }) => ({
+            selectorId: message.selectorId,
+            selectorName: selector.name,
+            products,
+          }),
+          // The webview listens for "productsError".
+          errorType: "productsError",
+          errorMessage: "Could not load products.",
+          logPrefix,
+        });
+        return;
+      case "checkProductSelectors":
+        await this.handleApiRequest({
+          panel,
+          operation: "checkProductSelectors",
+          request: () =>
+            this.findUnavailableSelectors(
+              message.advertiserId,
+              message.selectorIds,
+            ),
+          successType: "productSelectorsChecked",
+          successPayload: (unavailable) => ({
+            advertiserId: message.advertiserId,
+            unavailable,
+          }),
+          errorType: "productSelectorsError",
+          errorMessage: "Could not check product selectors.",
+          logPrefix,
+        });
+        return;
+      case "findProductSelectorOwner":
+        await this.handleApiRequest({
+          panel,
+          operation: "findProductSelectorOwner",
+          request: () =>
+            this.findSelectorOwner(
+              message.selectorIds,
+              message.preferredAgencyId ?? undefined,
+              (progress) =>
+                panel.webview.postMessage({
+                  type: "productSelectorSearchProgress",
+                  progress,
+                }),
+            ),
+          successType: "productSelectorOwnerFound",
+          successPayload: (owner) => ({
+            owner,
+          }),
+          errorType: "productSelectorOwnerError",
+          errorMessage: "Could not search for the product selector.",
+          logPrefix,
+        });
+        return;
+      case "loadCOFonts":
+        await this.handleApiRequest({
+          panel,
+          operation: "loadCOFonts",
+          request: () => this.api.getFonts(message.advertiserId),
+          successType: "coFontsLoaded",
+          successPayload: (fonts) => ({ fonts }),
+          errorType: "coFontsError",
+          errorMessage: "Could not load fonts.",
+          logPrefix: "[CO FONTS]",
+        });
+        return;
+    }
+  }
+
+  private async findUnavailableSelectors(
+    advertiserId: number,
+    selectorIds: string[],
+  ): Promise<string[]> {
+    const results = await Promise.all(
+      selectorIds.map(async (selectorId) => {
+        try {
+          const selector = await this.api.getProductSelector(
+            advertiserId,
+            selectorId,
+          );
+
+          return selector.valid ? null : selectorId;
+        } catch (error) {
+          if (errorText(error).includes("(404)")) {
+            return selectorId;
+          }
+
+          throw error;
+        }
+      }),
+    );
+
+    return results.filter((selectorId) => selectorId !== null);
+  }
+
+  private async findSelectorOwner(
+    selectorIds: string[],
+    preferredAgencyId: number | undefined,
+    onProgress: (progress: {
+      agencyIndex: number;
+      agencyCount: number;
+      agencyName: string;
+      advertiserCount: number | null;
+      advertisersChecked: number;
+      totalChecked: number;
+    }) => void,
+  ) {
+    const { agencies } = await this.getAgencyData();
+
+    // Try the agency the user already picked first.
+    const ordered = [...agencies].sort(
+      (a, b) =>
+        Number(b.id === preferredAgencyId) - Number(a.id === preferredAgencyId),
+    );
+
+    const batchSize = 8;
+    let totalChecked = 0;
+
+    for (const [index, agency] of ordered.entries()) {
+      const progress = {
+        agencyIndex: index + 1,
+        agencyCount: ordered.length,
+        agencyName: agency.name,
+      };
+
+      onProgress({
+        ...progress,
+        advertiserCount: null,
+        advertisersChecked: 0,
+        totalChecked,
+      });
+
+      let advertisers;
+
+      try {
+        advertisers = await this.api.getAdvertisers(agency.id);
+      } catch (error) {
+        console.error("[SELECTOR SEARCH] Advertisers failed:", error);
+        continue;
+      }
+
+      onProgress({
+        ...progress,
+        advertiserCount: advertisers.length,
+        advertisersChecked: 0,
+        totalChecked,
+      });
+
+      for (let i = 0; i < advertisers.length; i += batchSize) {
+        const batch = advertisers.slice(i, i + batchSize);
+
+        const matches = await Promise.all(
+          batch.map(async (advertiser) => {
+            // Any one known selector identifies the advertiser.
+            const found = await Promise.all(
+              selectorIds.map((selectorId) =>
+                this.api.getProductSelector(advertiser.id, selectorId).then(
+                  () => true,
+                  () => false,
+                ),
+              ),
+            );
+
+            return found.some(Boolean) ? advertiser : null;
+          }),
+        );
+
+        const match = matches.find((advertiser) => advertiser !== null);
+
+        if (match) {
+          return {
+            agency,
+            advertiser: { id: match.id, name: match.name },
+          };
+        }
+
+        totalChecked += batch.length;
+
+        onProgress({
+          ...progress,
+          advertiserCount: advertisers.length,
+          advertisersChecked: i + batch.length,
+          totalChecked,
+        });
+      }
+    }
+
+    // The search switches agencies, so go back to the one the user had.
+    if (preferredAgencyId !== undefined) {
+      await this.auth.switchAgency(preferredAgencyId);
+    }
+
+    return null;
   }
 
   private async authenticate(): Promise<void> {
@@ -1138,23 +989,6 @@ ${fontLinks}
       );
     }
   }
-  private getSettingsContent(webview: vscode.Webview): string {
-    const htmlPath = path.join(
-      this.extensionUri.fsPath,
-      "webview-dist",
-      "wizard.html",
-    );
-
-    let html = fs.readFileSync(htmlPath, "utf8");
-
-    const webviewDistUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "webview-dist"),
-    );
-
-    html = html.replace(/(["'])\.\/assets\//g, `$1${webviewDistUri}/assets/`);
-
-    return html;
-  }
   private openSettingsPanel(section: 1 | 2 | 3 | 4) {
     const titles: Record<number, string> = {
       1: "Adset details",
@@ -1202,495 +1036,55 @@ ${fontLinks}
       });
     });
 
-    panel.webview.onDidReceiveMessage(async (message) => {
-      if (message.type === "saveExportAdvertiser") {
-        try {
-          const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    panel.webview.onDidReceiveMessage(async (message: SettingsPanelMessage) => {
+      switch (message.type) {
+        case "saveExportAdvertiser":
+          this.saveExportAdvertiser(message.agency, message.advertiser);
+          return;
+        case "uploadToCO":
+          await this.uploadToCO(message, panel);
+          return;
+        case "loadCOExistingTemplates":
+          await this.loadCOExistingTemplates(message, panel);
+          return;
+        case "loadAgencyData":
+          await this.loadAgencyData(panel, "agencyDataLoaded");
+          return;
+        case "settingsWebviewReady":
+          if (this.exportOnReady) {
+            this.exportOnReady = false;
 
-          if (!workspaceFolder) {
-            throw new Error("No workspace folder is open.");
-          }
+            panel.title = "Export to Creative Optimizations";
 
-          const settingsPath = path.join(
-            workspaceFolder.uri.fsPath,
-            "settings",
-            "settings.json",
-          );
-
-          if (!fs.existsSync(settingsPath)) {
-            throw new Error("settings/settings.json was not found.");
-          }
-
-          const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-
-          settings.agency = message.agency;
-          settings.advertiser = message.advertiser;
-
-          fs.writeFileSync(
-            settingsPath,
-            JSON.stringify(settings, null, 2),
-            "utf8",
-          );
-
-          console.log("[EXPORT] Saved agency:", settings.agency);
-          console.log("[EXPORT] Saved advertiser:", settings.advertiser);
-        } catch (error) {
-          console.error("[EXPORT] Failed to save agency/advertiser:", error);
-
-          vscode.window.showErrorMessage(
-            `Failed to save export settings: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        }
-
-        return;
-      }
-      if (message.type === "uploadToCO") {
-        try {
-          const dimensions = message.dimensions ?? [];
-
-          if (dimensions.length === 0) {
-            throw new Error("No export dimensions selected.");
-          }
-
-          const projectName = message.projectName?.trim();
-
-          if (!projectName) {
-            throw new Error("Project name is required.");
-          }
-
-          console.log("[CO UPLOAD] Starting upload:", {
-            agencyId: message.agencyId,
-            advertiserId: message.advertiserId,
-            folderId: message.folderId,
-            projectName,
-            dimensions,
-          });
-
-          // Get all existing templates once.
-          const templates = await this.api.getTemplates(
-            message.agencyId,
-            message.advertiserId,
-          );
-
-          const results = await Promise.allSettled(
-            dimensions.map(async (dimension: string) => {
-              const templateName = `${projectName}_${dimension}`;
-
-              const existingTemplate = templates.find(
-                (template) =>
-                  Number(template.folderId) === Number(message.folderId) &&
-                  template.name === templateName,
-              );
-
-              console.log("[CO UPLOAD] Processing:", {
-                dimension,
-                templateName,
-                existingTemplate: existingTemplate ?? null,
-              });
-
-              // Build the dimension-specific ZIP.
-              const zipPath = await this.buildCOZip(projectName, dimension);
-
-              console.log("[CO UPLOAD] ZIP created:", zipPath);
-
-              // Existing template = revision.
-              // No existing template = new template.
-              await this.api.uploadTemplate({
-                agencyId: message.agencyId,
-                advertiserId: message.advertiserId,
-                folderId: message.folderId,
-                templateName,
-                zipPath,
-                templateId: existingTemplate?.id,
-              });
-
-              console.log(
-                "[CO UPLOAD] Upload successful:",
-                templateName,
-                existingTemplate ? "(revision)" : "(new)",
-              );
-
-              return {
-                dimension,
-                templateName,
-                type: existingTemplate ? "updated" : "uploaded",
-              };
-            }),
-          );
-
-          const successful = results.filter(
-            (result) => result.status === "fulfilled",
-          );
-
-          const failed = results.filter(
-            (result) => result.status === "rejected",
-          );
-
-          const uploaded = successful.filter(
-            (result) =>
-              result.status === "fulfilled" && result.value.type === "uploaded",
-          );
-
-          const updated = successful.filter(
-            (result) =>
-              result.status === "fulfilled" && result.value.type === "updated",
-          );
-
-          console.log("[CO UPLOAD] Completed:", {
-            total: dimensions.length,
-            successful: successful.length,
-            failed: failed.length,
-            uploaded: uploaded.length,
-            updated: updated.length,
-          });
-
-          if (failed.length === 0) {
-            const messages: string[] = [];
-
-            if (uploaded.length > 0) {
-              messages.push(`${uploaded.length} uploaded`);
-            }
-
-            if (updated.length > 0) {
-              messages.push(`${updated.length} updated`);
-            }
-
-            vscode.window.showInformationMessage(
-              `Creative Optimizations: ${messages.join(", ")}.`,
-            );
+            panel.webview.postMessage({ type: "openExport" });
           } else {
-            const errorMessages = failed.map((result) =>
-              result.status === "rejected"
-                ? result.reason instanceof Error
-                  ? result.reason.message
-                  : String(result.reason)
-                : "",
-            );
-
-            console.error("[CO UPLOAD] Failed uploads:", errorMessages);
-
-            vscode.window.showWarningMessage(
-              `Creative Optimizations: ${successful.length} succeeded, ${failed.length} failed.`,
-            );
+            panel.webview.postMessage({
+              type: "openSettingsSection",
+              section,
+            });
           }
-          const refreshedTemplates = await this.api.getTemplates(
-            message.agencyId,
-            message.advertiserId,
+          return;
+        case "loadCOFolders":
+          await this.loadCOFolders(message, panel);
+          return;
+        case "loadSettings":
+          await this.loadSettings(panel);
+          return;
+        case "saveSettings":
+          await this.saveSettings(
+            message.settings,
+            message.content,
+            message.collectionMapping,
+            panel,
           );
-
-          const folderTemplates = refreshedTemplates.filter(
-            (template) =>
-              Number(template.folderId) === Number(message.folderId),
-          );
-
-          const existingDimensions = (message.dimensions ?? []).filter(
-            (size: string) => {
-              const expectedName = `${message.projectName}_${size}`;
-
-              return folderTemplates.some(
-                (template) => template.name === expectedName,
-              );
-            },
-          );
-
-          console.log("[CO UPLOAD] Refreshed existing dimensions:", {
-            folderId: message.folderId,
-            existingDimensions,
-          });
-
-          panel.webview.postMessage({
-            type: "coExistingTemplatesLoaded",
-            existingDimensions,
-          });
-        } catch (error) {
-          console.error("[CO UPLOAD] Upload failed:", error);
-
-          vscode.window.showErrorMessage(
-            `CO upload failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        } finally {
-          // Tell the Export UI that uploading is finished.
-          panel.webview.postMessage({
-            type: "coUploadFinished",
-          });
-        }
-
-        return;
-      }
-      if (message.type === "loadCOExistingTemplates") {
-        try {
-          await this.authenticate();
-
-          const templates = await this.api.getTemplates(
-            message.agencyId,
-            message.advertiserId,
-          );
-
-          const targetTemplate = templates.find(
-            (template) => template.name === "BP US Fuel-300x600",
-          );
-
-          console.log(
-            "[EXPORT] Target template:",
-            JSON.stringify(targetTemplate, null, 2),
-          );
-
-          const folderTemplates = templates.filter(
-            (template) =>
-              Number(template.folderId) === Number(message.folderId),
-          );
-          console.log("[EXPORT] Project name:", message.projectName);
-          console.log("[EXPORT] Dimensions:", message.dimensions);
-          console.log("[EXPORT] Templates in folder:", templates);
-
-          const expectedNames = (message.dimensions ?? []).map(
-            (size: string) => `${message.projectName}_${size}`,
-          );
-
-          console.log("[EXPORT] Expected template names:", expectedNames);
-
-          const existingDimensions = (message.dimensions ?? []).filter(
-            (size: string) => {
-              const expectedName = `${message.projectName}_${size}`;
-              return folderTemplates.some(
-                (template) => template.name === expectedName,
-              );
-            },
-          );
-
-          console.log("[EXPORT] Existing templates in folder:", {
-            folderId: message.folderId,
-            existingDimensions,
-          });
-
-          panel.webview.postMessage({
-            type: "coExistingTemplatesLoaded",
-            existingDimensions,
-          });
-        } catch (error) {
-          console.error("[EXPORT] Failed to check existing templates:", error);
-
-          panel.webview.postMessage({
-            type: "coExistingTemplatesError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not check existing templates.",
-          });
-        }
-
-        return;
-      }
-      if (message.type === "loadAgencyData") {
-        await this.loadAgencyData(panel, "agencyDataLoaded");
-        return;
-      }
-      if (message.type === "checkAuthentication") {
-        await this.sendAuthenticationState(panel.webview);
-        return;
-      }
-      if (message.type === "settingsWebviewReady") {
-        if (this.exportOnReady) {
-          this.exportOnReady = false;
-
-          panel.title = "Export to Creative Optimizations";
-
-          panel.webview.postMessage({
-            type: "openExport",
-          });
-        } else {
-          panel.webview.postMessage({
-            type: "openSettingsSection",
-            section,
-          });
-        }
-
-        return;
-      }
-      if (message.type === "connectToCreativeOptimizations") {
-        await this.login(panel.webview);
-        return;
-      }
-      if (message.type === "loadAdvertisers") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadAdvertisers",
-          request: () => this.api.getAdvertisers(message.agencyId),
-          successType: "advertisersLoaded",
-          successPayload: (advertisers) => ({ advertisers }),
-          errorType: "advertisersError",
-          errorMessage: "Could not load advertisers.",
-          logPrefix: "[SETTINGS]",
-        });
-
-        return;
-      }
-      if (message.type === "loadAdsets") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadAdsets",
-          request: () =>
-            this.api.getAdSets(message.agencyId, message.advertiserId),
-          successType: "adsetsLoaded",
-          successPayload: (adsets) => ({ adsets }),
-          errorType: "adsetsError",
-          errorMessage: "Could not load adsets.",
-          logPrefix: "[SETTINGS]",
-        });
-
-        return;
-      }
-      if (message.type === "loadCOFolders") {
-        console.log("[EXPORT] loadCOFolders handler hit");
-        console.log("[EXPORT] loadCOFolders received:", {
-          agencyId: message.agencyId,
-          advertiserId: message.advertiserId,
-        });
-
-        try {
-          await this.authenticate();
-          const rootFolder = await this.api.getRootFolder(
-            message.agencyId,
-            message.advertiserId,
-            "templates",
-          );
-
-          const folders = await this.api.getFolders(
-            message.agencyId,
-            message.advertiserId,
-            "templates",
-          );
-
-          console.log("[EXPORT] Root folder:", rootFolder);
-          console.log("[EXPORT] Child folders:", folders);
-
-          panel.webview.postMessage({
-            type: "coFoldersLoaded",
-            rootFolder,
-            folders,
-          });
-        } catch (error) {
-          console.error("[EXPORT] Failed to load CO folders:", error);
-
-          panel.webview.postMessage({
-            type: "coFoldersError",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not load template folders.",
-          });
-        }
-
-        return;
-      }
-      if (message.type === "loadPlaceholders") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadPlaceholders",
-          request: () =>
-            this.api.getPlaceholders(message.advertiserId, message.adsetId),
-          successType: "placeholdersLoaded",
-          successPayload: (result) => ({
-            variants: result.variants,
-            collections: result.collections,
-          }),
-          errorType: "placeholdersError",
-          errorMessage: "Could not load placeholders.",
-          logPrefix: "[SETTINGS]",
-        });
-
-        return;
-      }
-      if (message.type === "loadCollectionFields") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadCollectionFields",
-          request: () =>
-            this.api.getCollectionFields(
-              message.agencyId,
-              message.advertiserId,
-            ),
-          successType: "collectionFieldsLoaded",
-          successPayload: (fields) => ({ fields }),
-          errorType: "collectionFieldsError",
-          errorMessage: "Could not load collection fields.",
-          logPrefix: "[SETTINGS]",
-        });
-
-        return;
-      }
-      if (message.type === "loadProductsBySelector") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadProductsBySelector",
-          request: () =>
-            this.api.searchProductsBySelector(
-              message.advertiserId,
-              message.selectorId,
-              message.limit ?? 10,
-              message.offset ?? 0,
-            ),
-          successType: "productsBySelectorLoaded",
-          successPayload: (products) => ({
-            selectorId: message.selectorId,
-            selectorName: message.selectorId,
-            products,
-          }),
-          errorType: "productsError",
-          errorMessage: "Could not load products.",
-          logPrefix: "[WIZARD]",
-        });
-
-        return;
-      }
-      if (message.type === "loadWorkspaceFolder") {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-
-        panel.webview.postMessage({
-          type: "workspaceFolderLoaded",
-          folder: workspaceFolder?.uri.fsPath ?? null,
-        });
-
-        return;
-      }
-
-      if (message.type === "loadSettings") {
-        await this.loadSettings(panel);
-        return;
-      }
-
-      if (message.type === "saveSettings") {
-        await this.saveSettings(
-          message.settings,
-          message.content,
-          message.collectionMapping,
-          panel,
-        );
-
-        return;
-      }
-
-      if (message.type === "loadCOFonts") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadCOFonts",
-          request: () => this.api.getFonts(message.advertiserId),
-          successType: "coFontsLoaded",
-          successPayload: (fonts) => ({ fonts }),
-          errorType: "coFontsError",
-          errorMessage: "Could not load fonts.",
-          logPrefix: "[CO FONTS]",
-        });
-
-        return;
+          return;
+        default:
+          await this.handleCommonPanelMessage(message, panel, "[SETTINGS]");
       }
     });
 
-    panel.webview.html = this.getSettingsContent(panel.webview);
+    // The settings panel reuses the wizard bundle.
+    panel.webview.html = this.getWebviewHtml(panel.webview, "wizard.html");
 
     panel.webview.postMessage({
       type: "openSettingsMode",
@@ -1701,6 +1095,218 @@ ${fontLinks}
       active: true,
     });
   }
+  private saveExportAdvertiser(agency: unknown, advertiser: unknown) {
+    try {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+
+      if (!workspaceFolder) {
+        throw new Error("No workspace folder is open.");
+      }
+
+      const settingsPath = path.join(
+        workspaceFolder.uri.fsPath,
+        "settings",
+        "settings.json",
+      );
+
+      if (!fs.existsSync(settingsPath)) {
+        throw new Error("settings/settings.json was not found.");
+      }
+
+      const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+
+      settings.agency = agency;
+      settings.advertiser = advertiser;
+
+      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+    } catch (error) {
+      console.error("[EXPORT] Failed to save agency/advertiser:", error);
+
+      vscode.window.showErrorMessage(
+        `Failed to save export settings: ${errorText(error)}`,
+      );
+    }
+  }
+
+  private async getExistingDimensions(
+    message: CoExportMessage,
+    projectName: string | undefined,
+  ): Promise<string[]> {
+    const templates = await this.api.getTemplates(
+      message.agencyId,
+      message.advertiserId,
+    );
+
+    const folderTemplates = templates.filter(
+      (template) => Number(template.folderId) === Number(message.folderId),
+    );
+
+    return (message.dimensions ?? []).filter((size) =>
+      folderTemplates.some(
+        (template) => template.name === `${projectName}_${size}`,
+      ),
+    );
+  }
+
+  private async uploadToCO(
+    message: CoExportMessage,
+    panel: vscode.WebviewPanel,
+  ) {
+    try {
+      const dimensions = message.dimensions ?? [];
+
+      if (dimensions.length === 0) {
+        throw new Error("No export dimensions selected.");
+      }
+
+      const projectName = message.projectName?.trim();
+
+      if (!projectName) {
+        throw new Error("Project name is required.");
+      }
+
+      const templates = await this.api.getTemplates(
+        message.agencyId,
+        message.advertiserId,
+      );
+
+      const results = await Promise.allSettled(
+        dimensions.map(async (dimension) => {
+          const templateName = `${projectName}_${dimension}`;
+
+          const existingTemplate = templates.find(
+            (template) =>
+              Number(template.folderId) === Number(message.folderId) &&
+              template.name === templateName,
+          );
+
+          const zipPath = await this.buildCOZip(projectName, dimension);
+
+          // An existing template is uploaded as a revision.
+          await this.api.uploadTemplate({
+            agencyId: message.agencyId,
+            advertiserId: message.advertiserId,
+            folderId: message.folderId,
+            templateName,
+            zipPath,
+            templateId: existingTemplate?.id,
+          });
+
+          return existingTemplate ? "updated" : "uploaded";
+        }),
+      );
+
+      const outcomes = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      const failures = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      const uploaded = outcomes.filter((outcome) => outcome === "uploaded");
+      const updated = outcomes.filter((outcome) => outcome === "updated");
+
+      if (failures.length === 0) {
+        const parts: string[] = [];
+
+        if (uploaded.length > 0) {
+          parts.push(`${uploaded.length} uploaded`);
+        }
+
+        if (updated.length > 0) {
+          parts.push(`${updated.length} updated`);
+        }
+
+        vscode.window.showInformationMessage(
+          `Creative Optimizations: ${parts.join(", ")}.`,
+        );
+      } else {
+        console.error("[CO UPLOAD] Failed uploads:", failures.map(errorText));
+
+        vscode.window.showWarningMessage(
+          `Creative Optimizations: ${outcomes.length} succeeded, ${failures.length} failed.`,
+        );
+      }
+
+      panel.webview.postMessage({
+        type: "coExistingTemplatesLoaded",
+        existingDimensions: await this.getExistingDimensions(
+          message,
+          projectName,
+        ),
+      });
+    } catch (error) {
+      console.error("[CO UPLOAD] Upload failed:", error);
+
+      vscode.window.showErrorMessage(`CO upload failed: ${errorText(error)}`);
+    } finally {
+      panel.webview.postMessage({ type: "coUploadFinished" });
+    }
+  }
+
+  private async loadCOExistingTemplates(
+    message: CoExportMessage,
+    panel: vscode.WebviewPanel,
+  ) {
+    try {
+      await this.authenticate();
+
+      panel.webview.postMessage({
+        type: "coExistingTemplatesLoaded",
+        existingDimensions: await this.getExistingDimensions(
+          message,
+          message.projectName,
+        ),
+      });
+    } catch (error) {
+      console.error("[EXPORT] Failed to check existing templates:", error);
+
+      panel.webview.postMessage({
+        type: "coExistingTemplatesError",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not check existing templates.",
+      });
+    }
+  }
+
+  private async loadCOFolders(
+    message: Pick<CoExportMessage, "agencyId" | "advertiserId">,
+    panel: vscode.WebviewPanel,
+  ) {
+    try {
+      await this.authenticate();
+
+      const rootFolder = await this.api.getRootFolder(
+        message.agencyId,
+        message.advertiserId,
+        "templates",
+      );
+
+      const folders = await this.api.getFolders(
+        message.agencyId,
+        message.advertiserId,
+        "templates",
+      );
+
+      panel.webview.postMessage({
+        type: "coFoldersLoaded",
+        rootFolder,
+        folders,
+      });
+    } catch (error) {
+      console.error("[EXPORT] Failed to load CO folders:", error);
+
+      panel.webview.postMessage({
+        type: "coFoldersError",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not load template folders.",
+      });
+    }
+  }
+
   private openExportPanel() {
     if (this.settingsPanel) {
       this.settingsPanel.title = "Export to Creative Optimizations";
@@ -1779,184 +1385,50 @@ ${fontLinks}
         enableScripts: true,
       },
     );
-    panel.webview.onDidReceiveMessage(async (message) => {
-      if (message.type === "checkAuthentication") {
-        await this.sendAuthenticationState(panel.webview);
-        return;
-      }
 
-      if (message.type === "createBoilerplate") {
-        try {
-          await this.createBoilerplate(message, panel);
-        } catch (error) {
-          console.error("[BOILERPLATE] Failed:", error);
-
-          vscode.window.showErrorMessage(
-            error instanceof Error
-              ? error.message
-              : "Could not create creative boilerplate.",
-          );
-        }
-      }
-
-      if (message.type === "loadWorkspaceFolder") {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-
-        panel.webview.postMessage({
-          type: "workspaceFolderLoaded",
-          folder: workspaceFolder?.uri.fsPath ?? null,
-        });
-      }
-
-      if (message.type === "selectFolder") {
-        await this.selectFolder(panel.webview);
-        return;
-      }
-      if (message.type === "connectToCreativeOptimizations") {
-        console.log("[EXT AUTH] connectToCreativeOptimizations received");
-
-        await this.login(panel.webview);
-
-        console.log("[EXT AUTH] login() completed");
-
-        return;
-      }
-      if (message.type === "loadPlaceholders") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadPlaceholders",
-          request: () =>
-            this.api.getPlaceholders(message.advertiserId, message.adsetId),
-          successType: "placeholdersLoaded",
-          successPayload: (result) => ({
-            variants: result.variants,
-            collections: result.collections,
-          }),
-          errorType: "placeholdersError",
-          errorMessage: "Could not load placeholders.",
-          logPrefix: "[WIZARD]",
-        });
-        return;
-      }
-      if (message.type === "loadAdvertisers") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadAdvertisers",
-          request: () => this.api.getAdvertisers(message.agencyId),
-          successType: "advertisersLoaded",
-          successPayload: (advertisers) => ({ advertisers }),
-          errorType: "advertisersError",
-          errorMessage: "Could not load advertisers.",
-          logPrefix: "[WIZARD]",
-        });
-        return;
-      }
-      if (message.type === "loadAdsets") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadAdsets",
-          request: () =>
-            this.api.getAdSets(message.agencyId, message.advertiserId),
-          successType: "adsetsLoaded",
-          successPayload: (adsets) => ({ adsets }),
-          errorType: "adsetsError",
-          errorMessage: "Could not load adsets.",
-          logPrefix: "[WIZARD]",
-        });
-        return;
-      }
-      if (message.type === "loadProductsBySelector") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadProductsBySelector",
-          request: async () => {
-            const selector = await this.api.getProductSelector(
-              message.advertiserId,
-              message.selectorId,
-            );
-            const products = await this.api.searchProductsBySelector(
-              message.advertiserId,
-              message.selectorId,
-              message.limit ?? 10,
-              message.offset ?? 0,
-            );
-
-            return { selector, products };
-          },
-          successType: "productsBySelectorLoaded",
-          successPayload: ({ selector, products }) => ({
-            selectorId: message.selectorId,
-            selectorName: selector.name,
-            products,
-          }),
-          errorType: "productsBySelectorError",
-          errorMessage: "Could not load products.",
-          logPrefix: "[WIZARD]",
-        });
-        return;
-      }
-      if (message.type === "loadCollectionFields") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadCollectionFields",
-          request: async () => {
-            await this.authenticate();
-            return this.api.getCollectionFields(
-              message.agencyId,
-              message.advertiserId,
-            );
-          },
-          successType: "collectionFieldsLoaded",
-          successPayload: (fields) => ({ fields }),
-          errorType: "collectionFieldsError",
-          errorMessage: "Could not load collection fields.",
-          logPrefix: "[SETTINGS]",
-        });
-        return;
-      }
-      if (message.type === "loadAgencyData") {
-        await this.loadAgencyData(panel, "authenticationState");
-        return;
-      }
-      if (message.type === "loadCOFonts") {
-        await this.handleApiRequest({
-          panel,
-          operation: "loadCOFonts",
-          request: () => this.api.getFonts(message.advertiserId),
-          successType: "coFontsLoaded",
-          successPayload: (fonts) => ({ fonts }),
-          errorType: "coFontsError",
-          errorMessage: "Could not load fonts.",
-          logPrefix: "[CO FONTS]",
-        });
+    this.wizardPanel = panel;
+    panel.onDidDispose(() => {
+      if (this.wizardPanel === panel) {
+        this.wizardPanel = null;
       }
     });
 
-    panel.webview.html = this.getWizardContent(panel.webview);
+    panel.webview.onDidReceiveMessage(async (message: WizardPanelMessage) => {
+      switch (message.type) {
+        case "createBoilerplate":
+          try {
+            await this.createBoilerplate(message, panel);
+          } catch (error) {
+            console.error("[BOILERPLATE] Failed:", error);
+
+            vscode.window.showErrorMessage(
+              error instanceof Error
+                ? error.message
+                : "Could not create creative boilerplate.",
+            );
+          }
+          return;
+        case "selectFolder":
+          await this.selectFolder(panel.webview);
+          return;
+        case "loadAgencyData":
+          await this.loadAgencyData(panel, "authenticationState");
+          return;
+        default:
+          await this.handleCommonPanelMessage(message, panel, "[WIZARD]");
+      }
+    });
+    panel.webview.html = this.getWebviewHtml(panel.webview, "wizard.html");
   }
 
-  private getSidebarContent(webview: vscode.Webview): string {
+  private getWebviewHtml(
+    webview: vscode.Webview,
+    fileName: "index.html" | "wizard.html",
+  ): string {
     const htmlPath = path.join(
       this.extensionUri.fsPath,
       "webview-dist",
-      "index.html",
-    );
-
-    let html = fs.readFileSync(htmlPath, "utf8");
-
-    const webviewDistUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "webview-dist"),
-    );
-
-    html = html.replace(/(["'])\.\/assets\//g, `$1${webviewDistUri}/assets/`);
-    return html;
-  }
-
-  private getWizardContent(webview: vscode.Webview): string {
-    const htmlPath = path.join(
-      this.extensionUri.fsPath,
-      "webview-dist",
-      "wizard.html",
+      fileName,
     );
 
     let html = fs.readFileSync(htmlPath, "utf8");

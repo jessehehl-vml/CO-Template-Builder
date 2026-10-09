@@ -1382,6 +1382,9 @@ button:hover {
   flex-direction: column;
   align-items: start;
 }
+.feed-mapping-actions.align-start {
+  justify-content: flex-start;
+}
 .collection-mapping-navigation {
   display: flex;
   align-self: end;
@@ -1501,6 +1504,33 @@ button:hover {
 .feed-placeholder-row.not-used .feed-placeholder-type {
   color: var(--vscode-descriptionForeground);
 }
+.status-message,
+.success-message,
+.warning-message {
+  margin: 12px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.status-message {
+  border: 1px solid var(--vscode-panel-border, #3c3c3c);
+  color: var(--vscode-descriptionForeground);
+}
+
+.success-message {
+  border: 1px solid #28472f;
+  background: #1b2620;
+  color: #7fc58f;
+}
+
+.warning-message {
+  border: 1px solid #5a4a1e;
+  background: #262219;
+  color: #e0b85c;
+}
+
 .error-message {
   display: flex;
   align-items: flex-start;
@@ -2063,6 +2093,18 @@ button:hover {
 .font-reimport-button:hover {
   text-decoration: underline;
   background: none;
+}
+
+.font-reimport-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}
+
+.fonts-loaded-count {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .font-reimport-button span {

@@ -15,6 +15,8 @@ type Placeholder = {
 };
 
 type PlaceholderDimension = {
+  width?: number;
+  height?: number;
   placeholders?: Placeholder[];
 };
 
@@ -511,7 +513,10 @@ ${Array.from({ length: frameCount }, (_, index) => {
           : `content?.[${JSON.stringify(name)}]?.value`;
 
         if (type === "image") {
-          return `  $("${selector}").attr("src", ${contentReference});`;
+          return [
+            `  $("${selector}").attr("src", ${contentReference});`,
+            `  Creative.addWait($("${selector}"));`,
+          ].join("\n");
         }
 
         return `  $("${selector}").html(${contentReference});`;
@@ -520,18 +525,47 @@ ${Array.from({ length: frameCount }, (_, index) => {
   }
 
   private buildInteractionCode(message: BoilerplateMessage): string {
-    const clickPlaceholder = (message.placeholderVariants ?? [])
-      .flatMap((variant) => variant.dimensions ?? [])
-      .flatMap((dimension) => dimension.placeholders ?? [])
-      .find((placeholder) => placeholder.type.toLowerCase() === "click");
+    const bySize: Record<string, string> = {};
+    const names = new Set<string>();
 
-    if (!clickPlaceholder) {
+    for (const variant of message.placeholderVariants ?? []) {
+      for (const dimension of variant.dimensions ?? []) {
+        for (const placeholder of dimension.placeholders ?? []) {
+          if (placeholder.type.toLowerCase() !== "click") {
+            continue;
+          }
+
+          names.add(placeholder.name);
+
+          if (dimension.width && dimension.height) {
+            bySize[`${dimension.width}x${dimension.height}`] ??=
+              placeholder.name;
+          }
+        }
+      }
+    }
+
+    const [first] = names;
+
+    if (first === undefined) {
       return ";";
     }
 
+    if (names.size === 1) {
+      return `
+    .on("click tap", function () {
+      Creative.click(${JSON.stringify(first)});
+    })`;
+    }
+
+    // The click placeholder is named differently per size.
     return `
     .on("click tap", function () {
-      Creative.click(content.clickUrl.value);
+      const clickPlaceholders = ${JSON.stringify(bySize)};
+
+      Creative.click(
+        clickPlaceholders[Creative.width + "x" + Creative.height] ?? ${JSON.stringify(first)},
+      );
     })`;
   }
 

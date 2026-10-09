@@ -105,6 +105,54 @@ export default function FontsSection({
     setSelectedFonts((fonts) => fonts.filter((font) => font.id !== id));
   };
 
+  const fontKey = (family: string, variant: string) => `${family}|${variant}`;
+
+  const selectedKeys = new Set(
+    selectedFonts.map((font) => fontKey(font.family, font.variant)),
+  );
+
+  const remainingFontCount = coFonts.reduce(
+    (count, font) =>
+      count +
+      font.variants.filter(
+        (variant) =>
+          !selectedKeys.has(fontKey(font["font-family"], variant.variant)),
+      ).length,
+    0,
+  );
+
+  const isVariantTaken = (id: number, family: string, variant: string) =>
+    selectedFonts.some(
+      (font) =>
+        font.id !== id && font.family === family && font.variant === variant,
+    );
+
+  const addAllFonts = () => {
+    setSelectedFonts((current) => {
+      // Empty rows are placeholders, so they make way for the real fonts.
+      const kept = current.filter((font) => font.family);
+      const keys = new Set(
+        kept.map((font) => fontKey(font.family, font.variant)),
+      );
+
+      const added = coFonts.flatMap((font) =>
+        font.variants
+          .filter(
+            (variant) =>
+              !keys.has(fontKey(font["font-family"], variant.variant)),
+          )
+          .map((variant) => ({
+            id: Date.now() + Math.random(),
+            family: font["font-family"],
+            variant: variant.variant,
+            fontUrl: font["css-base-url"],
+          })),
+      );
+
+      return [...kept, ...added];
+    });
+  };
+
   const updateFont = (
     id: number,
     field: "family" | "variant",
@@ -153,11 +201,21 @@ export default function FontsSection({
                 <span aria-hidden="true">↻</span> Re-import fonts{" "}
               </button>{" "}
             </div>{" "}
-            <p>
-              {" "}
-              {coFonts.length} {coFonts.length === 1 ? "font" : "fonts"}{" "}
-              available{" "}
-            </p>{" "}
+            <div className="fonts-loaded-count">
+              <p>
+                {" "}
+                {coFonts.length} {coFonts.length === 1 ? "font" : "fonts"}{" "}
+                available{" "}
+              </p>
+              <button
+                type="button"
+                className="font-reimport-button"
+                disabled={remainingFontCount === 0}
+                onClick={addAllFonts}
+              >
+                + Add all fonts
+              </button>
+            </div>{" "}
           </div>{" "}
         </div>
       ) : (
@@ -239,14 +297,27 @@ export default function FontsSection({
                         {font ? "Select a weight" : "Select a font first"}
                       </option>
 
-                      {font?.variants.map((variant) => (
-                        <option key={variant.variant} value={variant.variant}>
-                          {variant["font-weight"]}
-                          {variant["font-style"]
-                            ? ` ${variant["font-style"]}`
-                            : ""}
-                        </option>
-                      ))}
+                      {font?.variants.map((variant) => {
+                        const taken = isVariantTaken(
+                          selectedFont.id,
+                          selectedFont.family,
+                          variant.variant,
+                        );
+
+                        return (
+                          <option
+                            key={variant.variant}
+                            value={variant.variant}
+                            disabled={taken}
+                          >
+                            {variant["font-weight"]}
+                            {variant["font-style"]
+                              ? ` ${variant["font-style"]}`
+                              : ""}
+                            {taken ? " (already added)" : ""}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 

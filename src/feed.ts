@@ -1,6 +1,15 @@
+export type FeedMapping = {
+  identifierColumn: string;
+  dimensionColumn: string;
+  placeholderTypes: Record<string, string>;
+};
+
 export type ParsedFeed = {
   columns: string[];
   rows: Record<string, string>[];
+  source?: string;
+  sourceType?: "local" | "remote";
+  mapping?: FeedMapping;
 };
 
 function parseCsvRows(csvText: string): string[][] {

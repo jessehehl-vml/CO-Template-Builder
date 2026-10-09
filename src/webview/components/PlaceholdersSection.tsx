@@ -93,6 +93,15 @@ type ProductsBySelector = Record<
   }
 >;
 
+type SelectorSearchProgress = {
+  agencyIndex: number;
+  agencyCount: number;
+  agencyName: string;
+  advertiserCount: number | null;
+  advertisersChecked: number;
+  totalChecked: number;
+};
+
 type ProductSelectorRequest = {
   selectorId: string;
   required: number;
@@ -262,6 +271,36 @@ export default function PlaceholdersSection({
 
   const productRequestsLoaded = useRef<Set<string>>(new Set());
 
+  // The message handler is registered once, so it reads this instead of props.
+  const previousCollectionFields = useRef<CollectionMapping["fields"]>([]);
+  previousCollectionFields.current = collectionMapping?.fields ?? [];
+
+  // Start the collection step from the previous mapping's settings.
+  useEffect(() => {
+    if (isMappingCollection && collectionMapping) {
+      setCollectionName(collectionMapping.collection);
+      setCollectionIntent(collectionMapping.intent);
+      setCollectionRequiredItems(collectionMapping.required);
+    }
+  }, [isMappingCollection]);
+
+  const [selectorCheckResult, setSelectorCheckResult] = useState<{
+    advertiserId: number;
+    unavailable: string[];
+  } | null>(null);
+  const pendingSelectorCheck = useRef<number | null>(null);
+
+  const [findingAdvertiser, setFindingAdvertiser] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [searchProgress, setSearchProgress] =
+    useState<SelectorSearchProgress | null>(null);
+  const [foundOwner, setFoundOwner] = useState<{
+    agencyName: string;
+    advertiserName: string;
+  } | null>(null);
+  const autoSearchedSelector = useRef<string | null>(null);
+  const fieldsRequestedFor = useRef<number | null>(null);
+
   const COLLECTION_FIELD_PLACEHOLDER_TYPES: Record<string, PlaceholderType> = {
     text: "text",
     blob: "text",
@@ -285,6 +324,23 @@ export default function PlaceholdersSection({
     return dimension;
   };
 
+  // Custom sizes aren't plain WxH ids, so they can't be checked here.
+  const availableDimensions = new Set(
+    placeholderVariants.flatMap((variant) =>
+      variant.dimensions.map((dimension) => dimension.templateDimension),
+    ),
+  );
+
+  const missingDimensions =
+    placeholderVariants.length > 0
+      ? selectedDimensions.filter(
+          (dimension) =>
+            /^\d+x\d+$/.test(dimension) && !availableDimensions.has(dimension),
+        )
+      : [];
+
+  const missingDimensionsKey = missingDimensions.join("|");
+
   /*
    * Keep the displayed dimension in sync with the selected dimensions.
    */
@@ -293,15 +349,28 @@ export default function PlaceholdersSection({
       return;
     }
 
+    const missing = missingDimensionsKey.split("|");
+    const preferred =
+      selectedDimensions.find((dimension) => !missing.includes(dimension)) ??
+      selectedDimensions[0];
+
     if (dimensionType === "single") {
-      setDisplayDimension(selectedDimensions[0]);
+      setDisplayDimension(preferred);
       return;
     }
 
-    if (!selectedDimensions.includes(displayDimension)) {
-      setDisplayDimension(selectedDimensions[0]);
+    if (
+      !selectedDimensions.includes(displayDimension) ||
+      missing.includes(displayDimension)
+    ) {
+      setDisplayDimension(preferred);
     }
-  }, [selectedDimensions, dimensionType, displayDimension]);
+  }, [
+    selectedDimensions,
+    dimensionType,
+    displayDimension,
+    missingDimensionsKey,
+  ]);
 
   /*
    * Reset the product preview when changing variant or dimension.
@@ -462,14 +531,24 @@ export default function PlaceholdersSection({
 
         setCollectionFields(fields);
 
+        const previous = previousCollectionFields.current;
+
         setCollectionMappings(
-          fields.map((field) => ({
-            productField: field,
-            placeholder: field.name,
-            placeholderType:
-              COLLECTION_FIELD_PLACEHOLDER_TYPES[field.type] ?? "text",
-            selected: false,
-          })),
+          fields.map((field) => {
+            const earlier = previous.find(
+              (item) => item.productField === field.name,
+            );
+
+            return {
+              productField: field,
+              placeholder: earlier?.placeholder ?? field.name,
+              placeholderType:
+                earlier?.placeholderType ??
+                COLLECTION_FIELD_PLACEHOLDER_TYPES[field.type] ??
+                "text",
+              selected: !!earlier,
+            };
+          }),
         );
 
         setLoadingCollectionFields(false);
@@ -502,6 +581,72 @@ export default function PlaceholdersSection({
       if (message.type === "productsError") {
         setLoadingProducts(false);
         setProductsError(message.message);
+        return;
+      }
+
+      if (message.type === "productSelectorsChecked") {
+        setSelectorCheckResult({
+          advertiserId: message.advertiserId,
+          unavailable: message.unavailable ?? [],
+        });
+        return;
+      }
+
+      if (message.type === "productSelectorOwnerFound") {
+        setFindingAdvertiser(false);
+        setSearchProgress(null);
+
+        const owner = message.owner as {
+          agency: Agency;
+          advertiser: Advertiser;
+        } | null;
+
+        if (!owner) {
+          setSearchFailed(true);
+          return;
+        }
+
+        setFoundOwner({
+          agencyName: owner.agency.name,
+          advertiserName: owner.advertiser.name,
+        });
+
+        setAgencies((current) =>
+          current.some((agency) => agency.id === owner.agency.id)
+            ? current
+            : [...current, owner.agency],
+        );
+        setAdvertisers((current) =>
+          current.some((advertiser) => advertiser.id === owner.advertiser.id)
+            ? current
+            : [...current, owner.advertiser],
+        );
+        setSelectedAgency(owner.agency.id);
+        setSelectedAdvertiser(owner.advertiser.id);
+        setCollectionMappings([]);
+        return;
+      }
+
+      if (message.type === "productSelectorOwnerError") {
+        setFindingAdvertiser(false);
+        setSearchProgress(null);
+        setSearchFailed(true);
+        return;
+      }
+
+      if (message.type === "productSelectorSearchProgress") {
+        setSearchProgress(message.progress);
+        return;
+      }
+
+      if (message.type === "productSelectorsError") {
+        // Don't block mapping when the check itself fails.
+        if (pendingSelectorCheck.current !== null) {
+          setSelectorCheckResult({
+            advertiserId: pendingSelectorCheck.current,
+            unavailable: [],
+          });
+        }
         return;
       }
 
@@ -558,7 +703,53 @@ export default function PlaceholdersSection({
     setCollectionMapping,
     setPlaceholderVariants,
     setProducts,
+    setSelectedAgency,
+    setSelectedAdvertiser,
   ]);
+
+  /*
+   * Pick the identifier and dimension columns from a feed's headers.
+   */
+  const detectFeedColumns = (feed: ParsedFeed) => {
+    const findColumn = (candidates: string[]) => {
+      const normalizedCandidates = candidates.map((candidate) =>
+        candidate.trim().toLowerCase(),
+      );
+
+      return (
+        feed.columns.find((column) =>
+          normalizedCandidates.includes(column.trim().toLowerCase()),
+        ) ?? ""
+      );
+    };
+
+    setFeedIdentifierColumn(
+      findColumn([
+        "variantID",
+        "variantId",
+        "variant-name",
+        "variantName",
+        "ID",
+      ]),
+    );
+
+    setFeedDimensionColumn(
+      findColumn([
+        "dimensions",
+        "template_dimensions",
+        "template_dimension",
+        "templateDimension",
+        "templateDimensions",
+      ]),
+    );
+  };
+
+  // Re-opening the modal should show the feed that was already imported.
+  useEffect(() => {
+    if (showFeedModal && parsedFeed?.sourceType === "remote") {
+      setFeedUrl((current) => current || parsedFeed.source || "");
+    }
+  }, [showFeedModal, parsedFeed]);
 
   /*
    * Load a remote CSV feed.
@@ -612,7 +803,7 @@ export default function PlaceholdersSection({
 
       const feed = parseFeed(csvText);
 
-      setParsedFeed(feed);
+      setParsedFeed({ ...feed, source: url, sourceType: "remote" });
 
       const findColumn = (candidates: string[]) => {
         const normalizedCandidates = candidates.map((candidate) =>
@@ -737,6 +928,177 @@ export default function PlaceholdersSection({
   };
 
   /*
+   * Verify the feed's product selectors exist for the selected advertiser
+   * before any product fields are mapped.
+   */
+  const feedCollectionColumn = Object.entries(feedPlaceholderTypes).find(
+    ([, type]) => type === "collection",
+  )?.[0];
+
+  const feedSelectorKey =
+    feedCollectionColumn && parsedFeed
+      ? Array.from(
+          new Set(
+            parsedFeed.rows
+              .map((row) => row[feedCollectionColumn]?.trim() ?? "")
+              .filter(Boolean),
+          ),
+        ).join("\n")
+      : "";
+
+  useEffect(() => {
+    if (!isMappingCollection || !selectedAdvertiser || !feedSelectorKey) {
+      return;
+    }
+
+    setSelectorCheckResult(null);
+    pendingSelectorCheck.current = selectedAdvertiser;
+
+    vscode.postMessage({
+      type: "checkProductSelectors",
+      advertiserId: selectedAdvertiser,
+      selectorIds: feedSelectorKey.split("\n"),
+    });
+  }, [isMappingCollection, selectedAdvertiser, feedSelectorKey]);
+
+  const feedSelectorCount = feedSelectorKey
+    ? feedSelectorKey.split("\n").length
+    : 0;
+
+  const unavailableSelectors =
+    selectorCheckResult?.advertiserId === selectedAdvertiser
+      ? selectorCheckResult.unavailable
+      : [];
+
+  // Some missing selectors are fine; only none found blocks the mapping.
+  const selectorCheckStatus =
+    !isMappingCollection || !selectedAdvertiser || !feedSelectorKey
+      ? "idle"
+      : selectorCheckResult?.advertiserId !== selectedAdvertiser
+        ? "checking"
+        : unavailableSelectors.length === 0
+          ? "ok"
+          : unavailableSelectors.length >= feedSelectorCount
+            ? "unavailable"
+            : "partial";
+
+  const advertiserLabel =
+    foundOwner?.advertiserName ??
+    advertisers.find((advertiser) => advertiser.id === selectedAdvertiser)
+      ?.name ??
+    "the selected advertiser";
+
+  const unavailableSelectorsText =
+    feedSelectorCount === 1
+      ? `Product selector ${unavailableSelectors[0]} was not found for ${advertiserLabel}.`
+      : `None of the ${feedSelectorCount} product selectors in the feed were found for ${advertiserLabel}.`;
+
+  const partialSelectorsText = `${unavailableSelectors.length} of ${feedSelectorCount} product selectors in the feed were not found for ${advertiserLabel} and will have no products: ${unavailableSelectors.join(", ")}.`;
+
+  /*
+   * Find the advertiser that owns the feed's first product selectors.
+   */
+  const firstFeedSelectorId = feedSelectorKey.split("\n")[0];
+
+  // Several IDs, so one invalid selector doesn't hide the right advertiser.
+  const searchSelectorIds = feedSelectorKey
+    ? feedSelectorKey.split("\n").slice(0, 3)
+    : [];
+
+  const needsAdvertiser =
+    !selectedAdvertiser || selectorCheckStatus === "unavailable";
+
+  const searchPending =
+    isMappingCollection &&
+    isAuthenticated &&
+    !!firstFeedSelectorId &&
+    needsAdvertiser &&
+    autoSearchedSelector.current !== firstFeedSelectorId;
+
+  useEffect(() => {
+    if (
+      !searchPending ||
+      autoSearchedSelector.current === firstFeedSelectorId
+    ) {
+      return;
+    }
+
+    autoSearchedSelector.current = firstFeedSelectorId;
+    setFindingAdvertiser(true);
+    setSearchFailed(false);
+    setFoundOwner(null);
+    setSearchProgress(null);
+
+    vscode.postMessage({
+      type: "findProductSelectorOwner",
+      selectorIds: searchSelectorIds,
+      preferredAgencyId: selectedAgency,
+    });
+  }, [searchPending, firstFeedSelectorId, selectedAgency]);
+
+  /*
+   * Load the advertiser's product fields once its selectors are confirmed.
+   */
+  useEffect(() => {
+    if (!isMappingCollection || !selectedAdvertiser || !selectedAgency) {
+      return;
+    }
+
+    if (
+      selectorCheckStatus !== "ok" &&
+      selectorCheckStatus !== "partial" &&
+      selectorCheckStatus !== "idle"
+    ) {
+      return;
+    }
+
+    if (fieldsRequestedFor.current === selectedAdvertiser) {
+      return;
+    }
+
+    fieldsRequestedFor.current = selectedAdvertiser;
+    setLoadingCollectionFields(true);
+    setApiError(null);
+
+    vscode.postMessage({
+      type: "loadCollectionFields",
+      agencyId: selectedAgency,
+      advertiserId: selectedAdvertiser,
+    });
+  }, [
+    isMappingCollection,
+    selectedAdvertiser,
+    selectedAgency,
+    selectorCheckStatus,
+    setApiError,
+  ]);
+
+  const searchProgressText = searchProgress
+    ? `Searching agency ${searchProgress.agencyIndex} of ${searchProgress.agencyCount} (${searchProgress.agencyName})` +
+      (searchProgress.advertiserCount === null
+        ? " - loading advertisers..."
+        : ` - ${searchProgress.advertisersChecked} of ${searchProgress.advertiserCount} advertisers checked`) +
+      ` (${searchProgress.totalChecked} checked in total)`
+    : "Looking for the advertiser that has this product selector...";
+
+  const needsManualSetup =
+    isMappingCollection &&
+    !findingAdvertiser &&
+    !searchPending &&
+    selectorCheckStatus !== "ok" &&
+    selectorCheckStatus !== "partial" &&
+    selectorCheckStatus !== "checking" &&
+    !(selectorCheckStatus === "idle" && !!selectedAdvertiser);
+
+  /*
+   * A different advertiser may know the selector, so allow a fresh attempt.
+   */
+  useEffect(() => {
+    productRequestsLoaded.current.clear();
+    setProductsError(null);
+  }, [selectedAdvertiser]);
+
+  /*
    * Fetch products once a selector is known.
    */
   useEffect(() => {
@@ -751,7 +1113,9 @@ export default function PlaceholdersSection({
     }
 
     const pendingRequests = requests.filter(
-      ({ selectorId }) => !productRequestsLoaded.current.has(selectorId),
+      ({ selectorId }) =>
+        !productRequestsLoaded.current.has(selectorId) &&
+        !unavailableSelectors.includes(selectorId),
     );
 
     if (pendingRequests.length === 0) {
@@ -958,6 +1322,33 @@ export default function PlaceholdersSection({
     setSelectedVariantIndex(0);
   };
 
+  const resetCollectionState = () => {
+    setCollectionMapping(null);
+    setProducts({});
+    setCollectionMappings([]);
+    setSelectorCheckResult(null);
+    setProductsError(null);
+    setFoundOwner(null);
+    setSearchFailed(false);
+    productRequestsLoaded.current.clear();
+    fieldsRequestedFor.current = null;
+  };
+
+  const saveFeedMapping = () => {
+    setParsedFeed((feed) =>
+      feed
+        ? {
+            ...feed,
+            mapping: {
+              identifierColumn: feedIdentifierColumn,
+              dimensionColumn: feedDimensionColumn,
+              placeholderTypes: feedPlaceholderTypes,
+            },
+          }
+        : feed,
+    );
+  };
+
   /*
    * Finish the feed mapping.
    */
@@ -976,6 +1367,9 @@ export default function PlaceholdersSection({
       return;
     }
 
+    // A feed without a collection must not keep the previous one's products.
+    resetCollectionState();
+    saveFeedMapping();
     buildFeedVariants();
 
     setApiError(null);
@@ -986,9 +1380,11 @@ export default function PlaceholdersSection({
 
   const selectedVariant = placeholderVariants[selectedVariantIndex];
 
-  const selectedDimension = selectedVariant?.dimensions.find(
-    (dimension) => dimension.templateDimension === displayDimension,
-  );
+  // Fall back so a size mismatch doesn't hide every placeholder.
+  const selectedDimension =
+    selectedVariant?.dimensions.find(
+      (dimension) => dimension.templateDimension === displayDimension,
+    ) ?? selectedVariant?.dimensions[0];
 
   const selectedProductSelectorId = selectedDimension?.productSelectorId;
 
@@ -1007,6 +1403,41 @@ export default function PlaceholdersSection({
     : [];
 
   const selectedProduct = selectedProducts[selectedProductIndex] ?? null;
+
+  const selectedSelectorUnavailable =
+    !!selectedProductSelectorId &&
+    unavailableSelectors.includes(selectedProductSelectorId);
+
+  const showCollectionSection =
+    !!collectionMapping &&
+    !isMappingFeed &&
+    !isMappingFeedPlaceholders &&
+    !isMappingPlaceholders &&
+    !isMappingCollection &&
+    (selectedProducts.length > 0 ||
+      !!productsError ||
+      selectedSelectorUnavailable);
+
+  const productsErrorText = productsError?.includes("(404)")
+    ? `Product selector "${selectedProductSelectorId ?? ""}" (identifier "${selectedVariant?.contentId ?? ""}") was not found for the selected advertiser.`
+    : productsError;
+
+  const sectionErrorText = selectedSelectorUnavailable
+    ? `Product selector "${selectedProductSelectorId}" (identifier "${selectedVariant?.contentId ?? ""}") was not found for ${advertiserLabel}. No products are included for this variant.`
+    : productsErrorText;
+
+  const reimportCollectionFields = () => {
+    if (collectionMapping) {
+      setCollectionName(collectionMapping.collection);
+      setCollectionIntent(collectionMapping.intent);
+      setCollectionRequiredItems(collectionMapping.required);
+    }
+
+    setApiError(null);
+    setCollectionMappings([]);
+    fieldsRequestedFor.current = null;
+    setIsMappingCollection(true);
+  };
 
   return (
     <section>
@@ -1067,7 +1498,13 @@ export default function PlaceholdersSection({
                 <label className="feed-label">Local CSV</label>
 
                 <label className="file-input">
-                  <span>{feedFile ? feedFile.name : "Choose CSV file"}</span>
+                  <span>
+                    {feedFile?.name ??
+                      (parsedFeed?.sourceType === "local"
+                        ? parsedFeed.source
+                        : undefined) ??
+                      "Choose CSV file"}
+                  </span>
 
                   <input
                     type="file"
@@ -1077,6 +1514,7 @@ export default function PlaceholdersSection({
 
                       setFeedFile(file);
                       setParsedFeed(null);
+                      setFeedPlaceholderTypes({});
                       setFeedSourceType(file ? "local" : null);
 
                       if (!file) {
@@ -1088,7 +1526,11 @@ export default function PlaceholdersSection({
 
                         const feed = parseFeed(csvText);
 
-                        setParsedFeed(feed);
+                        setParsedFeed({
+                          ...feed,
+                          source: file.name,
+                          sourceType: "local",
+                        });
 
                         const findColumn = (candidates: string[]) => {
                           const normalizedCandidates = candidates.map(
@@ -1193,7 +1635,25 @@ export default function PlaceholdersSection({
                 disabled={!parsedFeed && !feedUrl.trim()}
                 onClick={async () => {
                   if (parsedFeed) {
-                    setFeedPlaceholderTypes({});
+                    const saved = parsedFeed.mapping;
+
+                    if (saved) {
+                      setFeedIdentifierColumn(saved.identifierColumn);
+                      setFeedDimensionColumn(saved.dimensionColumn);
+                      setFeedPlaceholderTypes(
+                        saved.placeholderTypes as Record<
+                          string,
+                          PlaceholderType
+                        >,
+                      );
+                    } else {
+                      if (!feedIdentifierColumn) {
+                        detectFeedColumns(parsedFeed);
+                      }
+
+                      setFeedPlaceholderTypes({});
+                    }
+
                     setIsMappingFeed(true);
                     setIsMappingPlaceholders(true);
                     setShowFeedModal(false);
@@ -1281,6 +1741,21 @@ export default function PlaceholdersSection({
 
               {apiError && <p className="error-message">{apiError}</p>}
 
+              {importModalMode === "collectionFields" &&
+                selectorCheckStatus === "checking" && (
+                  <p>Checking product selector...</p>
+                )}
+
+              {importModalMode === "collectionFields" &&
+                selectorCheckStatus === "unavailable" && (
+                  <p className="error-message">{unavailableSelectorsText}</p>
+                )}
+
+              {importModalMode === "collectionFields" &&
+                selectorCheckStatus === "partial" && (
+                  <p className="warning-message">{partialSelectorsText}</p>
+                )}
+
               {!loadingAgencies && agencies.length > 0 && (
                 <div className="selection-fields">
                   <label>
@@ -1322,6 +1797,7 @@ export default function PlaceholdersSection({
                           const advertiserId = Number(event.target.value);
 
                           setSelectedAdvertiser(advertiserId);
+                          setCollectionMappings([]);
 
                           setSelectedAdset(null);
                           setSelectedAdsetId(null);
@@ -1395,7 +1871,10 @@ export default function PlaceholdersSection({
                 className="primary-button"
                 disabled={
                   !selectedAdvertiser ||
-                  (importModalMode === "placeholders" && !selectedAdsetId)
+                  (importModalMode === "placeholders" && !selectedAdsetId) ||
+                  (importModalMode === "collectionFields" &&
+                    (selectorCheckStatus === "checking" ||
+                      selectorCheckStatus === "unavailable"))
                 }
                 onClick={() => {
                   if (!selectedAdvertiser) {
@@ -1403,15 +1882,8 @@ export default function PlaceholdersSection({
                   }
 
                   if (importModalMode === "collectionFields") {
+                    // Product fields load automatically once the selectors check out.
                     setShowImportModal(false);
-                    setLoadingCollectionFields(true);
-
-                    vscode.postMessage({
-                      type: "loadCollectionFields",
-                      agencyId: selectedAgency,
-                      advertiserId: selectedAdvertiser,
-                    });
-
                     return;
                   }
 
@@ -1429,7 +1901,7 @@ export default function PlaceholdersSection({
                 }}
               >
                 {importModalMode === "collectionFields"
-                  ? "Import product fields"
+                  ? "Use advertiser"
                   : "Import placeholders"}
               </button>
             </div>
@@ -1515,7 +1987,8 @@ export default function PlaceholdersSection({
                     column !== feedIdentifierColumn &&
                     column !== feedDimensionColumn
                   ) {
-                    initialPlaceholderTypes[column] = "not used";
+                    initialPlaceholderTypes[column] =
+                      feedPlaceholderTypes[column] ?? "not used";
                   }
                 });
 
@@ -1681,6 +2154,7 @@ export default function PlaceholdersSection({
               className="mapping-button"
               onClick={() => {
                 setIsMappingFeedPlaceholders(false);
+                setIsMappingPlaceholders(false);
               }}
             >
               Cancel
@@ -1758,32 +2232,86 @@ export default function PlaceholdersSection({
             </div>
           </div>
 
-          <div className="feed-mapping-actions collection-mapping-actions">
-            <button
-              className="secondary-button"
-              onClick={() => {
-                setApiError(null);
+          {findingAdvertiser && (
+            <p className="status-message">{searchProgressText}</p>
+          )}
 
-                if (!selectedAdvertiser) {
+          {searchFailed &&
+            selectorCheckStatus !== "ok" &&
+            selectorCheckStatus !== "partial" && (
+              <p className="error-message">
+                No advertiser with product selector{" "}
+                {searchSelectorIds.join(", ")} was found in your agencies.
+              </p>
+            )}
+
+          {selectorCheckStatus === "checking" && (
+            <p className="status-message">
+              {foundOwner
+                ? `Found ${foundOwner.advertiserName} (${foundOwner.agencyName}). `
+                : ""}
+              Checking {feedSelectorCount} product selector
+              {feedSelectorCount === 1 ? "" : "s"} from the feed...
+            </p>
+          )}
+
+          {selectorCheckStatus === "ok" && (
+            <p className="success-message">
+              {foundOwner
+                ? `Found ${foundOwner.advertiserName} (${foundOwner.agencyName}). `
+                : ""}
+              {feedSelectorCount === 1
+                ? "The product selector is"
+                : `All ${feedSelectorCount} product selectors are`}{" "}
+              available for {advertiserLabel}.
+            </p>
+          )}
+
+          {selectorCheckStatus === "unavailable" && (
+            <p className="error-message">{unavailableSelectorsText}</p>
+          )}
+
+          {selectorCheckStatus === "partial" && (
+            <p className="warning-message">
+              {foundOwner
+                ? `Found ${foundOwner.advertiserName} (${foundOwner.agencyName}). `
+                : ""}
+              {partialSelectorsText}
+            </p>
+          )}
+
+          {loadingCollectionFields && (
+            <p className="status-message">Loading product fields...</p>
+          )}
+
+          {apiError && <p className="error-message">{apiError}</p>}
+
+          {needsManualSetup && (
+            <div className="feed-mapping-actions align-start">
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setApiError(null);
+
+                  if (!isAuthenticated) {
+                    vscode.postMessage({
+                      type: "connectToCreativeOptimizations",
+                    });
+                    return;
+                  }
+
                   setImportModalMode("collectionFields");
                   setShowImportModal(true);
-                  return;
-                }
+                }}
+              >
+                {isAuthenticated
+                  ? "Select advertiser"
+                  : "Connect to Creative Optimizations"}
+              </button>
+            </div>
+          )}
 
-                setLoadingCollectionFields(true);
-
-                vscode.postMessage({
-                  type: "loadCollectionFields",
-                  agencyId: selectedAgency,
-                  advertiserId: selectedAdvertiser,
-                });
-              }}
-            >
-              {loadingCollectionFields
-                ? "Loading product fields..."
-                : "Import product fields from CO"}
-            </button>
-
+          <div className="feed-mapping-actions collection-mapping-actions">
             {collectionMappings.length > 0 && (
               <div className="collection-fields-section">
                 <div className="collection-fields-header">
@@ -1904,7 +2432,10 @@ export default function PlaceholdersSection({
 
               <button
                 className="mapping-button"
-                disabled={!hasSelectedCollectionFields}
+                disabled={
+                  !hasSelectedCollectionFields ||
+                  selectorCheckStatus === "unavailable"
+                }
                 onClick={() => {
                   const selectedFields = collectionMappings
                     .filter((mapping) => mapping.selected)
@@ -1921,6 +2452,9 @@ export default function PlaceholdersSection({
                     fields: selectedFields,
                   });
 
+                  setProducts({});
+                  productRequestsLoaded.current.clear();
+                  saveFeedMapping();
                   buildFeedVariants();
 
                   setIsMappingCollection(false);
@@ -1986,13 +2520,29 @@ export default function PlaceholdersSection({
                     }}
                   >
                     {selectedDimensions.map((dimension) => (
-                      <option key={dimension} value={dimension}>
+                      <option
+                        key={dimension}
+                        value={dimension}
+                        disabled={missingDimensions.includes(dimension)}
+                      >
                         {getDimensionLabel(dimension)}
+                        {missingDimensions.includes(dimension)
+                          ? " (not in feed)"
+                          : ""}
                       </option>
                     ))}
                   </select>
                 </div>
               )}
+
+            {missingDimensions.length > 0 && (
+              <p className="warning-message">
+                {missingDimensions.join(", ")}{" "}
+                {missingDimensions.length === 1 ? "is" : "are"} selected but not
+                available in the feed
+                {dimensionType === "responsive" ? " and disabled" : ""}.
+              </p>
+            )}
 
             <div className="placeholder-list">
               <div className="placeholder-item identifier-item">
@@ -2003,201 +2553,215 @@ export default function PlaceholdersSection({
                 </div>
               </div>
 
-              {placeholderVariants[selectedVariantIndex].dimensions
-                .find(
-                  (dimension) =>
-                    dimension.templateDimension === displayDimension,
-                )
-                ?.placeholders.map((placeholder) => (
-                  <div className="placeholder-item" key={placeholder.name}>
-                    <div className="placeholder-name">
-                      <span className="placeholder-name-text">
-                        {placeholder.name}
-                      </span>
+              {selectedDimension?.placeholders.map((placeholder) => (
+                <div className="placeholder-item" key={placeholder.name}>
+                  <div className="placeholder-name">
+                    <span className="placeholder-name-text">
+                      {placeholder.name}
+                    </span>
 
-                      <span className="placeholder-type">
-                        {PLACEHOLDER_TYPE_ICONS[placeholder.type]}{" "}
-                      </span>
-                    </div>
-
-                    <div className="placeholder-value">
-                      {Array.isArray(placeholder.value)
-                        ? `${placeholder.value.length} products`
-                        : String(placeholder.value || "—")}
-                    </div>
+                    <span className="placeholder-type">
+                      {PLACEHOLDER_TYPE_ICONS[placeholder.type]}{" "}
+                    </span>
                   </div>
-                ))}
+
+                  <div className="placeholder-value">
+                    {Array.isArray(placeholder.value)
+                      ? `${placeholder.value.length} products`
+                      : String(placeholder.value || "—")}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="variant-field-count">
-              <span>
-                {placeholderVariants[selectedVariantIndex]?.dimensions.find(
-                  (dimension) =>
-                    dimension.templateDimension === displayDimension,
-                )?.placeholders.length ?? 0}{" "}
-                fields
-              </span>
+              <span>{selectedDimension?.placeholders.length ?? 0} fields</span>
             </div>
           </div>
         )}
 
-      {collectionMapping &&
-        !isMappingCollection &&
-        selectedProducts.length > 0 && (
-          <div className="collection-fields-section">
-            <div className="feed-mapping-header">
-              <strong>Collection</strong>
+      {showCollectionSection && (
+        <div className="collection-fields-section">
+          <div className="feed-mapping-header">
+            <strong>Collection</strong>
+          </div>
+
+          <div className="feed-mapping-fields">
+            <div className="feed-mapping-field">
+              <label>Collection name</label>
+
+              <input
+                value={collectionMapping.collection}
+                onChange={(event) => {
+                  const value = event.target.value;
+
+                  setCollectionMapping((current) =>
+                    current
+                      ? {
+                          ...current,
+                          collection: value,
+                        }
+                      : current,
+                  );
+                }}
+              />
             </div>
 
-            <div className="feed-mapping-fields">
-              <div className="feed-mapping-field">
-                <label>Collection name</label>
+            <div className="feed-mapping-field">
+              <label>Intent</label>
 
-                <input
-                  value={collectionMapping.collection}
-                  onChange={(event) => {
-                    const value = event.target.value;
+              <input
+                value={collectionMapping.intent}
+                onChange={(event) => {
+                  const value = event.target.value;
 
-                    setCollectionMapping((current) =>
-                      current
-                        ? {
-                            ...current,
-                            collection: value,
-                          }
-                        : current,
-                    );
-                  }}
-                />
-              </div>
-
-              <div className="feed-mapping-field">
-                <label>Intent</label>
-
-                <input
-                  value={collectionMapping.intent}
-                  onChange={(event) => {
-                    const value = event.target.value;
-
-                    setCollectionMapping((current) =>
-                      current
-                        ? {
-                            ...current,
-                            intent: value,
-                          }
-                        : current,
-                    );
-                  }}
-                />
-              </div>
-
-              <div className="feed-mapping-field">
-                <label>Required</label>
-
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={collectionMapping.required}
-                  onChange={(event) => {
-                    setCollectionMapping((current) =>
-                      current
-                        ? {
-                            ...current,
-                            required: event.target.value,
-                          }
-                        : current,
-                    );
-                  }}
-                />
-              </div>
+                  setCollectionMapping((current) =>
+                    current
+                      ? {
+                          ...current,
+                          intent: value,
+                        }
+                      : current,
+                  );
+                }}
+              />
             </div>
 
-            <div className="feed-mapping-fields">
-              <div className="feed-mapping-field">
-                <label>Selector ID</label>
+            <div className="feed-mapping-field">
+              <label>Required</label>
 
-                <div className="placeholder-value">
-                  {selectedProductSelectorId || "—"}
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={collectionMapping.required}
+                onChange={(event) => {
+                  setCollectionMapping((current) =>
+                    current
+                      ? {
+                          ...current,
+                          required: event.target.value,
+                        }
+                      : current,
+                  );
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="feed-mapping-fields">
+            <div className="feed-mapping-field">
+              <label>Selector ID</label>
+
+              <div className="placeholder-value">
+                {selectedProductSelectorId || "—"}
+              </div>
+            </div>
+          </div>
+
+          {selectedProducts.length > 0 ? (
+            <>
+              <div className="feed-mapping-header">
+                <strong>Products</strong>
+              </div>
+
+              <div className="variant-navigation">
+                <button
+                  className="variant-arrow"
+                  disabled={selectedProductIndex === 0}
+                  onClick={() => {
+                    setSelectedProductIndex((index) => index - 1);
+                  }}
+                >
+                  ←
+                </button>
+
+                <span>
+                  Product {selectedProductIndex + 1} of{" "}
+                  {selectedProducts.length}
+                </span>
+
+                <button
+                  className="variant-arrow"
+                  disabled={
+                    selectedProductIndex === selectedProducts.length - 1
+                  }
+                  onClick={() => {
+                    setSelectedProductIndex((index) => index + 1);
+                  }}
+                >
+                  →
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="feed-mapping-actions align-start">
+              <p className="error-message">{sectionErrorText}</p>
+
+              {!selectedSelectorUnavailable && (
+                <button
+                  className="secondary-button"
+                  onClick={reimportCollectionFields}
+                >
+                  Import product fields from CO
+                </button>
+              )}
+            </div>
+          )}
+
+          {selectedProducts.length > 0 && (
+            <>
+              <div className="collection-field-list">
+                <div className="collection-field-list-header">
+                  <span>Placeholder</span>
+                  <span>Content</span>
                 </div>
-              </div>
-            </div>
 
-            <div className="feed-mapping-header">
-              <strong>Products</strong>
-            </div>
+                {collectionMapping.fields.map((field) => {
+                  const rawValue =
+                    selectedProduct?.fields?.[field.productField];
 
-            <div className="variant-navigation">
-              <button
-                className="variant-arrow"
-                disabled={selectedProductIndex === 0}
-                onClick={() => {
-                  setSelectedProductIndex((index) => index - 1);
-                }}
-              >
-                ←
-              </button>
+                  const value =
+                    rawValue &&
+                    typeof rawValue === "object" &&
+                    "value" in rawValue
+                      ? rawValue.value
+                      : (rawValue ?? "");
 
-              <span>
-                Product {selectedProductIndex + 1} of {selectedProducts.length}
-              </span>
+                  return (
+                    <div
+                      key={field.placeholder}
+                      className="collection-field-list-row"
+                    >
+                      <div className="placeholder-name">
+                        <span className="placeholder-name-text">
+                          {field.placeholder}
 
-              <button
-                className="variant-arrow"
-                disabled={selectedProductIndex === selectedProducts.length - 1}
-                onClick={() => {
-                  setSelectedProductIndex((index) => index + 1);
-                }}
-              >
-                →
-              </button>
-            </div>
-
-            <div className="collection-field-list">
-              <div className="collection-field-list-header">
-                <span>Placeholder</span>
-                <span>Content</span>
-              </div>
-
-              {collectionMapping.fields.map((field) => {
-                const rawValue = selectedProduct?.fields?.[field.productField];
-
-                const value =
-                  rawValue &&
-                  typeof rawValue === "object" &&
-                  "value" in rawValue
-                    ? rawValue.value
-                    : (rawValue ?? "");
-
-                return (
-                  <div
-                    key={field.placeholder}
-                    className="collection-field-list-row"
-                  >
-                    <div className="placeholder-name">
-                      <span className="placeholder-name-text">
-                        {field.placeholder}
-
-                        <span className="placeholder-type">
-                          {PLACEHOLDER_TYPE_ICONS[field.placeholderType]}
+                          <span className="placeholder-type">
+                            {PLACEHOLDER_TYPE_ICONS[field.placeholderType]}
+                          </span>
                         </span>
-                      </span>
+                      </div>
+
+                      <div className="placeholder-value">
+                        {String(value) || "—"}
+                      </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    <div className="placeholder-value">
-                      {String(value) || "—"}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+              <div className="collection-field-count">
+                <span>{collectionMapping.fields.length} fields</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
-            <div className="collection-field-count">
-              <span>{collectionMapping.fields.length} fields</span>
-            </div>
-          </div>
-        )}
-
-      {productsError && <p className="error-message">{productsError}</p>}
+      {productsError && !showCollectionSection && (
+        <p className="error-message">{productsErrorText}</p>
+      )}
 
       {loadingProducts && (
         <p className="loading-message">Loading products...</p>

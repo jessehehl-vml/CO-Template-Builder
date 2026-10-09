@@ -116,6 +116,10 @@ test("generate autofills text and image placeholders", () => {
     script,
     /\$\("\.product-image"\)\.attr\("src", content\?\.\["product-image"\]\?\.value\);/,
   );
+  assert.match(
+    script,
+    /\.attr\("src"[^\n]*\n\s*Creative\.addWait\(\$\("\.product-image"\)\);/,
+  );
 });
 
 test("generate omits placeholder autofill when disabled", () => {
@@ -213,6 +217,56 @@ test("generate maps collection products and limits unique items", () => {
       { title: "Second", image: "second.jpg" },
     ],
   );
+});
+
+test("generate leaves the collection empty when a selector has no products", () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const generator = createGenerator();
+
+  const variant = (selectorId) => ({
+    dimensions: [
+      {
+        placeholders: [
+          { name: "product-selector_ID", type: "text", value: selectorId },
+        ],
+      },
+    ],
+  });
+
+  generator.generate(
+    createMessage({
+      folder,
+      collectionMapping: {
+        collection: "products",
+        intent: "product",
+        required: "1",
+        fields: [
+          {
+            placeholder: "title",
+            placeholderType: "text",
+            productField: "name",
+          },
+        ],
+      },
+      products: {
+        "known-selector": {
+          products: { items: [{ id: "a", fields: { name: "First" } }] },
+        },
+      },
+      placeholderVariants: [variant("known-selector"), variant("missing")],
+    }),
+  );
+
+  const content = JSON.parse(
+    fs.readFileSync(path.join(folder, "settings", "content.json"), "utf8"),
+  );
+  const collectionOf = (index) =>
+    content.variants[index].dimensions[0].placeholders.find(
+      (placeholder) => placeholder.name === "products",
+    ).value;
+
+  assert.equal(collectionOf(0).length, 1);
+  assert.deepEqual(collectionOf(1), []);
 });
 
 test("generate writes settings metadata for the project and selections", () => {
@@ -328,8 +382,38 @@ test("generate adds a click interaction when a click placeholder is present", ()
 
   assert.match(
     script,
-    /\.on\("click tap", function \(\) \{\s*Creative\.click\(content\.clickUrl\.value\);/s,
+    /\.on\("click tap", function \(\) \{\s*Creative\.click\("clickUrl"\);/s,
   );
+});
+
+test("generate picks the click placeholder name per size when names differ", () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const generator = createGenerator();
+  const dimension = (width, height, name) => ({
+    width,
+    height,
+    placeholders: [{ name, type: "click", value: "https://example.com" }],
+  });
+
+  generator.generate(
+    createMessage({
+      folder,
+      placeholderVariants: [
+        {
+          dimensions: [
+            dimension(300, 250, "url"),
+            dimension(728, 90, "clickUrl"),
+          ],
+        },
+      ],
+    }),
+  );
+
+  const script = fs.readFileSync(path.join(folder, "src", "script.js"), "utf8");
+
+  assert.match(script, /"300x250":"url"/);
+  assert.match(script, /"728x90":"clickUrl"/);
+  assert.match(script, /Creative\.width \+ "x" \+ Creative\.height/);
 });
 
 test("generate omits interaction code when no click placeholder exists", () => {
@@ -341,5 +425,5 @@ test("generate omits interaction code when no click placeholder exists", () => {
   const script = fs.readFileSync(path.join(folder, "src", "script.js"), "utf8");
 
   assert.doesNotMatch(script, /\.on\("click tap", function \(\) \{/);
-  assert.doesNotMatch(script, /Creative\.click\(content\.clickUrl\.value\);/);
+  assert.doesNotMatch(script, /Creative\.click\(/);
 });
