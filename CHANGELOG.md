@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.8
+
+### Fixed
+
+- Creating the boilerplate now opens the folder you selected in step 1 when it is not the open workspace. With no folder open it opens in the same window, and if another folder is open it opens in a new window.
+- The **Select folder** button in step 1 is no longer stretched across the full window.
+
 ## 0.0.7
 
 ### Added

@@ -1760,6 +1760,14 @@ button:hover {
 .change-folder-button:hover {
   background: var(--vscode-toolbar-hoverBackground);
 }
+
+.select-folder-button {
+  width: auto;
+  padding: 6px 12px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+}
 .app,
 .landing {
   padding: 0;

@@ -1467,6 +1467,21 @@ ${fontLinks}
 
     vscode.window.showInformationMessage("Creative boilerplate created.");
 
+    const openFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    // The project is not the open workspace, so open it. This reloads the window.
+    if (!openFolder || path.resolve(openFolder) !== path.resolve(message.folder)) {
+      panel.dispose();
+
+      await vscode.commands.executeCommand(
+        "vscode.openFolder",
+        vscode.Uri.file(message.folder),
+        { forceNewWindow: Boolean(openFolder) },
+      );
+
+      return;
+    }
+
     await vscode.window.showTextDocument(
       vscode.Uri.file(path.join(message.folder, "src", "index.html")),
     );
