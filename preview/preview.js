@@ -412,6 +412,7 @@ function getReviewPanel() {
   close.title = "Close";
   close.addEventListener("click", () => setReviewPanelOpen(false));
 
+  icons.appendChild(createQaCopyButton());
   icons.appendChild(expand);
   icons.appendChild(close);
 
@@ -446,6 +447,28 @@ function getReviewPanel() {
   panel.appendChild(top);
 
   return panel;
+}
+
+function createQaCopyButton() {
+  const hasResults = Object.keys(QA_ORIGIN_LABELS).some(
+    (kind) => qaState[kind]?.result,
+  );
+  const copied = Date.now() - qaCopiedAt < 2000;
+  const copy = document.createElement("button");
+
+  copy.type = "button";
+  copy.className = "qa-copy-button";
+  copy.innerHTML = copied ? QA_CHECK_ICON : QA_COPY_ICON;
+  copy.setAttribute("aria-label", "Copy summary for Asana");
+  copy.title = copied
+    ? "Copied to clipboard"
+    : hasResults
+      ? "Copy a plain-language summary to paste into Asana"
+      : "Run a check first";
+  copy.disabled = !hasResults;
+  copy.addEventListener("click", copyQaSummary);
+
+  return copy;
 }
 
 const qaState = { rules: null, ai: null, variants: null };
@@ -615,6 +638,403 @@ function qaStatusText(kind, entry) {
   return kind === "variants"
     ? result.statusText
     : `${result.filesReviewed} files${result.model ? ` \u00b7 ${result.model}` : ""}`;
+}
+
+// Plain-language titles and meanings, so the summary reads without coding knowledge.
+const QA_PLAIN_RULES = {
+  "CLK-001": [
+    "The banner may not open the landing page correctly",
+    "Clicks are not handled the standard way, so tracking or the click-out may not work.",
+  ],
+  "CLK-002": [
+    "Clicking the banner will not open the landing page",
+    "The click-out is broken, so the banner cannot go live like this.",
+  ],
+  "NET-001": [
+    "The banner loads something from an unapproved or insecure address",
+    "Only approved sources are allowed, and all of them must be secure (HTTPS).",
+  ],
+  "CON-001": [
+    "Text or links are typed into the code instead of coming from the feed",
+    "These will not change per variant.",
+  ],
+  "ANI-001": [
+    "The animation may start before everything has loaded",
+    "Images could pop in late or the banner could look broken at the start.",
+  ],
+  "ANI-002": [
+    "The animation is too long or never stops",
+    "Ad specs limit how long a banner may animate.",
+  ],
+  "ANI-003": [
+    "The animation cannot be paused reliably for frame review",
+    "QA mode may not show the correct frames, so the frames are harder to check.",
+  ],
+  "CRE-001": [
+    "The required template setup has been changed",
+    "Parts of the template that the platform depends on are missing or changed.",
+  ],
+  "PERF-001": [
+    "Files are too heavy",
+    "Large files make the banner load slowly and may exceed the size limit.",
+  ],
+  "PERF-002": [
+    "The animation could run more smoothly",
+    "A different animation technique would be lighter on the viewer's device.",
+  ],
+  "CSS-001": [
+    "Styling for one size is in the wrong place",
+    "This can make other sizes look wrong.",
+  ],
+  "CSS-002": [
+    "A font may not display",
+    "The banner may fall back to a different font than designed.",
+  ],
+  "CSS-003": [
+    "Positioning may clash with the animation",
+    "Elements could jump or end up in the wrong place.",
+  ],
+  "CSS-004": ["The layout could be built more simply", "No visible problem."],
+  "CSS-005": ["The layout could be built more simply", "No visible problem."],
+  "JS-001": [
+    "The code contains something unsafe",
+    "This is not allowed in ads and must be removed.",
+  ],
+  "JS-002": [
+    "The code could be cleaner",
+    "Things that could cause hidden bugs later.",
+  ],
+  "JS-003": [
+    "Leftover test code",
+    "Debug lines were left in. No visible effect for viewers.",
+  ],
+  "INT-001": [
+    "The animation may keep playing while someone is hovering",
+    "This can feel annoying to the viewer.",
+  ],
+  "HTML-001": [
+    "The feed text contains hidden code or formatting",
+    "Unexpected formatting could appear in the banner, or the text may be unsafe.",
+  ],
+  "SEL-001": [
+    "The code refers to an element that does not exist",
+    "The animation or content for that element will silently do nothing.",
+  ],
+  "LIB-001": [
+    "A required software library is loaded twice, mismatched or missing",
+    "Features that depend on it may fail.",
+  ],
+  "DIM-001": [
+    "A banner size is missing its own styling file",
+    "That size may not look as designed.",
+  ],
+  "DEAD-001": [
+    "Unused code can be removed",
+    "No visible problem. It only makes the project harder to maintain.",
+  ],
+  "DRY-001": [
+    "The same animation code is repeated",
+    "No visible problem. It only makes changes slower and riskier.",
+  ],
+  "RUN-001": [
+    "The banner shows an error when it loads",
+    "Something fails when the banner runs for some variants or sizes.",
+  ],
+  "RUN-002": [
+    "Text does not fit",
+    "Text sticks out of the banner or is cut off for some variants or sizes.",
+  ],
+  "RUN-003": [
+    "A picture is missing",
+    "An image has no source, often because the feed value is empty.",
+  ],
+};
+
+const QA_PLAIN_LEVELS = [
+  ["error", "MUST BE FIXED BEFORE LAUNCH"],
+  ["warning", "SHOULD BE CHECKED"],
+  ["info", "OPTIONAL IMPROVEMENTS"],
+];
+
+const QA_SUMMARY_DETAILS_PER_ISSUE = 5;
+
+function qaCount(count, word) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+function qaShorten(text, max = 220) {
+  const clean = String(text).replace(/\s+/g, " ").trim();
+
+  return clean.length > max ? `${clean.slice(0, max - 1)}\u2026` : clean;
+}
+
+const QA_LEVEL_STYLE = {
+  error: { mark: "\u{1F534}", color: "#b42318" },
+  warning: { mark: "\u{1F7E0}", color: "#b54708" },
+  info: { mark: "\u{1F535}", color: "#175cd3" },
+};
+
+const QA_CHECK_DESCRIPTIONS = {
+  rules: "automatic code check",
+  variants: "every variant tested at every size",
+  ai: "reviewed by AI",
+};
+
+// Structured report that is rendered both as plain text and as HTML for Asana.
+function qaSummaryModel() {
+  const all = collectQaFindings();
+  const total = (severity) =>
+    all.filter((finding) => finding.severity === severity).length;
+  const errors = total("error");
+  const warnings = total("warning");
+  const notDone = Object.keys(QA_ORIGIN_LABELS).filter(
+    (kind) => !qaState[kind]?.result,
+  );
+
+  let verdict;
+
+  if (errors > 0) {
+    verdict = {
+      mark: "\u{1F534}",
+      color: "#b42318",
+      label: "NOT READY",
+      text: `${qaCount(errors, "problem")} to fix before launch`,
+    };
+  } else if (notDone.length > 0) {
+    verdict = {
+      mark: "\u{1F7E1}",
+      color: "#a16207",
+      label: "INCOMPLETE",
+      text: "no problems found so far, but not every check has been run",
+    };
+  } else if (warnings > 0) {
+    verdict = {
+      mark: "\u{1F7E0}",
+      color: "#b54708",
+      label: "READY, WITH POINTS TO CHECK",
+      text: qaCount(warnings, "point") + " to check",
+    };
+  } else {
+    verdict = {
+      mark: "\u{1F7E2}",
+      color: "#067647",
+      label: "READY",
+      text: "no problems found",
+    };
+  }
+
+  const checks = Object.entries(QA_ORIGIN_LABELS).map(([kind, label]) => {
+    const entry = qaState[kind];
+    let mark = "\u26AA";
+    let status = "not run";
+
+    if (entry?.pending) {
+      mark = "\u23F3";
+      status = "still running";
+    } else if (entry?.error) {
+      mark = "\u274C";
+      status = `could not run (${qaShorten(entry.error, 120)})`;
+    } else if (entry?.result) {
+      mark = "\u2705";
+      status =
+        kind === "variants"
+          ? `done, ${entry.result.statusText}`
+          : `done, ${qaCount(entry.result.filesReviewed, "file")} reviewed`;
+    }
+
+    return { mark, label, description: QA_CHECK_DESCRIPTIONS[kind], status };
+  });
+
+  const sections = QA_PLAIN_LEVELS.map(([severity, heading]) => {
+    const groups = new Map();
+
+    all
+      .filter((finding) => finding.severity === severity)
+      .forEach((finding) => {
+        const list = groups.get(finding.rule) ?? [];
+
+        list.push(finding);
+        groups.set(finding.rule, list);
+      });
+
+    const issues = [...groups].map(([rule, findings]) => {
+      const [title, meaning] = QA_PLAIN_RULES[rule] ?? [
+        `Other issue (${rule})`,
+        "",
+      ];
+      const details = findings
+        .slice(0, QA_SUMMARY_DETAILS_PER_ISSUE)
+        .map((finding) => {
+          const where = finding.file
+            ? ` (${finding.file}${finding.line ? `:${finding.line}` : ""})`
+            : "";
+
+          return `${qaShorten(finding.message)}${where}`;
+        });
+
+      if (findings.length > QA_SUMMARY_DETAILS_PER_ISSUE) {
+        details.push(
+          `and ${findings.length - QA_SUMMARY_DETAILS_PER_ISSUE} more`,
+        );
+      }
+
+      return { title, meaning, count: findings.length, details };
+    });
+
+    return {
+      ...QA_LEVEL_STYLE[severity],
+      heading,
+      count: total(severity),
+      issues,
+    };
+  }).filter((section) => section.issues.length > 0);
+
+  return {
+    meta: [
+      ["Project", previewData?.projectName ?? "Preview"],
+      ["Date", new Date().toLocaleString()],
+      [
+        "Sizes",
+        dimensions.map((d) => `${d.width}x${d.height}`).join(", ") || "none",
+      ],
+      ["Variants", String(variants.length)],
+    ],
+    verdict,
+    checks,
+    sections,
+    noFindings: all.length === 0 && notDone.length < checks.length,
+  };
+}
+
+// Used when the browser cannot paste formatted text.
+function qaSummaryText(model) {
+  const lines = [
+    "CODE REVIEW REPORT",
+    ...model.meta.map(([name, value]) => `${name}: ${value}`),
+    "",
+    `RESULT: ${model.verdict.mark} ${model.verdict.label} - ${model.verdict.text}`,
+    "",
+    "CHECKS",
+    ...model.checks.map(
+      (check) =>
+        `- ${check.mark} ${check.label} (${check.description}): ${check.status}`,
+    ),
+  ];
+
+  model.sections.forEach((section) => {
+    lines.push(
+      "",
+      `${section.mark} ${section.heading} (${qaCount(section.count, "finding")})`,
+    );
+
+    section.issues.forEach((issue, index) => {
+      lines.push(`${index + 1}. ${issue.title} (${issue.count}x)`);
+
+      if (issue.meaning) {
+        lines.push(`   What it means: ${issue.meaning}`);
+      }
+
+      lines.push("   Details for the developer:");
+      issue.details.forEach((detail) => lines.push(`   - ${detail}`));
+    });
+  });
+
+  if (model.noFindings) {
+    lines.push("", "No findings.");
+  }
+
+  return lines.join("\n");
+}
+
+function qaEscape(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Asana keeps bold, italics and lists when pasted, but drops text colour,
+// so the coloured markers are emoji.
+function qaSummaryHtml(model) {
+  const { verdict } = model;
+  const parts = [
+    "<p><b>CODE REVIEW REPORT</b></p>",
+    `<p>${model.meta
+      .map(([name, value]) => `${qaEscape(name)}: <b>${qaEscape(value)}</b>`)
+      .join("<br>")}</p>`,
+    `<p><b style="color:${verdict.color}">RESULT: ${verdict.mark} ${qaEscape(verdict.label)}</b> - ${qaEscape(verdict.text)}</p>`,
+    "<p><b>CHECKS</b></p>",
+    `<ul>${model.checks
+      .map(
+        (check) =>
+          `<li>${check.mark} <b>${qaEscape(check.label)}</b> (${qaEscape(check.description)}): ${qaEscape(check.status)}</li>`,
+      )
+      .join("")}</ul>`,
+  ];
+
+  model.sections.forEach((section) => {
+    parts.push(
+      `<p><b style="color:${section.color}">${section.mark} ${qaEscape(section.heading)}</b> (${qaCount(section.count, "finding")})</p>`,
+      `<ol>${section.issues
+        .map(
+          (issue) =>
+            `<li><b>${qaEscape(issue.title)}</b> (${issue.count}x)` +
+            (issue.meaning
+              ? `<br><i>What it means:</i> ${qaEscape(issue.meaning)}`
+              : "") +
+            `<br><i>Details for the developer:</i><ul>${issue.details
+              .map((detail) => `<li>${qaEscape(detail)}</li>`)
+              .join("")}</ul></li>`,
+        )
+        .join("")}</ol>`,
+    );
+  });
+
+  if (model.noFindings) {
+    parts.push("<p>No findings.</p>");
+  }
+
+  return parts.join("");
+}
+
+let qaCopiedAt = 0;
+
+const QA_COPY_ICON =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1"/></svg>';
+const QA_CHECK_ICON =
+  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
+
+function copyQaPlainText(text) {
+  return navigator.clipboard.writeText(text).catch(() => {
+    const area = document.createElement("textarea");
+
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  });
+}
+
+async function copyQaSummary() {
+  const model = qaSummaryModel();
+  const text = qaSummaryText(model);
+  const html = qaSummaryHtml(model);
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/plain": new Blob([text], { type: "text/plain" }),
+        "text/html": new Blob([html], { type: "text/html" }),
+      }),
+    ]);
+  } catch {
+    await copyQaPlainText(text);
+  }
+
+  qaCopiedAt = Date.now();
+  renderQaPanel();
+  setTimeout(renderQaPanel, 2000);
 }
 
 function qaHeading(text) {
@@ -881,6 +1301,7 @@ function renderQaFilters(bar, all, shownCount) {
   count.className = "qa-count";
   count.textContent = `Showing ${shownCount} of ${all.length}`;
   bar.appendChild(count);
+  bar.appendChild(createQaCopyButton());
 }
 
 function renderQaExpanded(panel) {

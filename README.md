@@ -569,6 +569,8 @@ Each finding has a severity, a rule ID, the file and line, and a suggested fix:
 
 The results are labeled by where they came from (code checks, variant test or AI review). The full-screen view adds an overview with counts per check and per file, and filters for severity, check, rule and file, plus a search over the messages.
 
+Click the **copy icon** in the panel header (or in the filter bar in full-screen view) to copy a plain-language report to the clipboard, then paste it into an Asana task. It starts with the result (not ready, incomplete, or ready), lists which checks were run, and groups the issues into "must be fixed", "should be checked" and "optional". Each issue is explained in everyday words, with the technical details listed underneath for the developer.
+
 ---
 
 # Export

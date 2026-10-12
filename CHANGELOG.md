@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.6
+
+### Added
+
+- **Copy for Asana:** a copy icon in the code review panel (in the header, or in the filter bar in full-screen view) copies a plain-language report to the clipboard. It pastes into Asana with bold headings, lists and colored markers (🔴 must fix, 🟠 should check, 🔵 optional). The report shows the overall result (not ready, incomplete or ready), which checks were run, and each issue in everyday words with the technical details listed for the developer.
+
 ## 0.0.5
 
 ### Added

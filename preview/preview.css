@@ -635,6 +635,30 @@ select {
   cursor: default;
 }
 
+.qa-copy-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0;
+
+  border: 0;
+  background: transparent;
+
+  color: #30343a;
+
+  cursor: pointer;
+}
+
+.qa-copy-button:hover:not(:disabled) {
+  color: #1d4ed8;
+}
+
+.qa-copy-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .qa-panel-close {
   border: 0;
   background: transparent;
