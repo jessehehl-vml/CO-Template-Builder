@@ -8,12 +8,12 @@ export default function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(true);
   const [activeSettingsSection, setActiveSettingsSection] = useState<
-    1 | 2 | 3 | 4 | null
+    1 | 2 | 3 | 4 | 5 | null
   >(null);
   const [exportOpen, setExportOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(true);
 
-  const openSettingsSection = (section: 1 | 2 | 3 | 4) => {
+  const openSettingsSection = (section: 1 | 2 | 3 | 4 | 5) => {
     setActiveSettingsSection(section);
 
     vscode.postMessage({
@@ -119,6 +119,15 @@ export default function App() {
                       onClick={() => openSettingsSection(4)}
                     >
                       Fonts
+                    </button>
+
+                    <button
+                      className={`menu-item ${
+                        activeSettingsSection === 5 ? "active" : ""
+                      }`}
+                      onClick={() => openSettingsSection(5)}
+                    >
+                      Add-ons
                     </button>
                   </div>
                 )}

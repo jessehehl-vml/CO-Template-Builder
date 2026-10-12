@@ -88,6 +88,8 @@ type WizardFooterProps = {
   frameCount: number;
   autoFillPlaceholderContent: boolean;
   autoScaleFonts: boolean;
+  browserCheck: boolean;
+  splitText: boolean;
   name: string;
   selectedFolder: string | null;
   userName: string | null;
@@ -132,6 +134,8 @@ export default function WizardFooter({
   frameCount,
   autoFillPlaceholderContent,
   autoScaleFonts,
+  browserCheck,
+  splitText,
   step,
   setStep,
   settingsMode,
@@ -218,6 +222,8 @@ export default function WizardFooter({
               frames: frameCount,
               autoFillPlaceholderContent,
               autoScaleFonts,
+              browserCheck,
+              splitText,
               selectedAgency: selectedAgency
                 ? (agencies.find((agency) => agency.id === selectedAgency) ??
                   null)

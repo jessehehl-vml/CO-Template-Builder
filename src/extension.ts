@@ -10,6 +10,12 @@ import {
 import { ZipExportService } from "./zip-export";
 import { PreviewServer } from "./preview-server";
 import { BannerReviewService } from "./banner-review";
+import {
+  applyAddOns,
+  detectAddOns,
+  type AddOns,
+  type ProjectFiles,
+} from "./addons";
 import type {
   CoExportMessage,
   CommonPanelMessage,
@@ -752,6 +758,12 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       const settingsContent = fs.readFileSync(settingsPath, "utf8");
       const settings = JSON.parse(settingsContent);
 
+      // The files are the truth: add-ons may have been edited by hand.
+      Object.assign(
+        settings,
+        detectAddOns(this.readAddOnFiles(workspaceFolder.uri.fsPath)),
+      );
+
       let content = null;
 
       if (fs.existsSync(contentPath)) {
@@ -850,8 +862,18 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       const updatedSettings = {
         ...existingSettings,
         ...settings,
-        placeholders: updatedPlaceholders,
+        // Sections that do not edit placeholders must keep the saved ones.
+        placeholders:
+          settings.placeholders !== undefined || collectionMapping?.collection
+            ? updatedPlaceholders
+            : (existingSettings.placeholders ?? {}),
       };
+
+      const addOnNotes = this.applyAddOnsToProject(
+        workspaceFolder.uri.fsPath,
+        updatedSettings,
+      );
+
       const advertiserId =
         (updatedSettings as any)?.advertiser?.id ??
         (existingSettings as any)?.advertiser?.id;
@@ -973,7 +995,13 @@ ${fontLinks}
 
         fs.writeFileSync(indexPath, html, "utf8");
       }
-      vscode.window.showInformationMessage("Settings saved.");
+      vscode.window.showInformationMessage(
+        ["Settings saved.", ...addOnNotes.changes].join(" "),
+      );
+
+      addOnNotes.warnings.forEach((warning) =>
+        vscode.window.showWarningMessage(warning),
+      );
 
       panel.dispose();
 
@@ -989,12 +1017,82 @@ ${fontLinks}
       );
     }
   }
-  private openSettingsPanel(section: 1 | 2 | 3 | 4) {
+  private readAddOnFiles(workspacePath: string): Partial<ProjectFiles> {
+    const read = (name: string) => {
+      const filePath = path.join(workspacePath, "src", name);
+
+      return fs.existsSync(filePath)
+        ? fs.readFileSync(filePath, "utf8")
+        : undefined;
+    };
+
+    return {
+      creative: read("Creative.js"),
+      script: read("script.js"),
+      index: read("index.html"),
+    };
+  }
+
+  // Adds or removes add-on code in src/ so it matches the saved choices.
+  private applyAddOnsToProject(
+    workspacePath: string,
+    settings: Record<string, unknown>,
+  ): { changes: string[]; warnings: string[] } {
+    const none = { changes: [], warnings: [] };
+    const keys = ["autoScaleFonts", "browserCheck", "splitText"];
+
+    if (!keys.some((key) => key in settings)) {
+      return none;
+    }
+
+    const files = this.readAddOnFiles(workspacePath);
+
+    if (!files.creative || !files.script || !files.index) {
+      return {
+        changes: [],
+        warnings: [
+          "Add-ons were not changed: src/Creative.js, script.js and index.html are all needed.",
+        ],
+      };
+    }
+
+    const current = detectAddOns(files) as AddOns;
+    const wanted = Object.fromEntries(
+      keys.map((key) => [
+        key,
+        key in settings ? Boolean(settings[key]) : current[key as keyof AddOns],
+      ]),
+    ) as AddOns;
+    const result = applyAddOns(files as ProjectFiles, wanted);
+    const names = {
+      creative: "Creative.js",
+      script: "script.js",
+      index: "index.html",
+    } as const;
+
+    (Object.keys(names) as (keyof typeof names)[]).forEach((key) => {
+      if (result.files[key] !== files[key]) {
+        fs.writeFileSync(
+          path.join(workspacePath, "src", names[key]),
+          result.files[key],
+          "utf8",
+        );
+      }
+    });
+
+    // Saved choices follow what could actually be applied.
+    Object.assign(settings, detectAddOns(result.files));
+
+    return { changes: result.changes, warnings: result.warnings };
+  }
+
+  private openSettingsPanel(section: 1 | 2 | 3 | 4 | 5) {
     const titles: Record<number, string> = {
       1: "Adset details",
       2: "Dimensions",
       3: "Placeholders",
       4: "Fonts",
+      5: "Add-ons",
     };
 
     if (this.settingsPanel) {

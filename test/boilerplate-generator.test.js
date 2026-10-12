@@ -70,6 +70,166 @@ test("generate removes Creative.autoScaleFont when autoscale is disabled", () =>
   assert.doesNotMatch(script, /await Creative\.autoScaleFont\(\);/);
 });
 
+function loadCheck(creativeSource, navigator) {
+  const vm = require("node:vm");
+  const window = { devicePixelRatio: 2 };
+
+  vm.runInNewContext(creativeSource, {
+    window,
+    navigator,
+    document: { fonts: { ready: Promise.resolve() } },
+  });
+
+  return window.Creative.check;
+}
+
+test("generate adds Creative.check when browser check is enabled", () => {
+  const { folder } = createProject({ browserCheck: true });
+  const creative = readGeneratedFile(folder, "Creative.js");
+
+  assert.match(creative, /check: \(\(\) => \{/);
+  assert.doesNotMatch(creative, /BROWSER_CHECK/);
+
+  const chrome = loadCheck(creative, {
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    maxTouchPoints: 0,
+  });
+
+  assert.deepEqual(
+    [chrome.chrome(), chrome.safari(), chrome.edge(), chrome.windows()],
+    [true, false, false, true],
+  );
+  assert.deepEqual(
+    [chrome.desktop(), chrome.mobile(), chrome.retina()],
+    [true, false, true],
+  );
+
+  const ipad = loadCheck(creative, {
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    maxTouchPoints: 5,
+  });
+
+  assert.deepEqual(
+    [ipad.ios(), ipad.mobile(), ipad.osx(), ipad.safari()],
+    [true, true, false, true],
+  );
+
+  const edge = loadCheck(creative, {
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+    maxTouchPoints: 0,
+  });
+
+  assert.deepEqual([edge.edge(), edge.chrome()], [true, false]);
+});
+
+test("generate omits Creative.check when browser check is disabled", () => {
+  const { folder } = createProject();
+  const creative = readGeneratedFile(folder, "Creative.js");
+
+  assert.doesNotMatch(creative, /check: \(\(\) => \{/);
+  assert.doesNotMatch(creative, /BROWSER_CHECK/);
+});
+
+test("generate adds the latest SplitText when it is enabled", () => {
+  const { folder } = createProject({ splitText: true });
+  const index = readGeneratedFile(folder, "index.html");
+
+  assert.match(index, /gsap\/3\.15\.0\/gsap\.min\.js/);
+  assert.match(index, /gsap\/3\.15\.0\/SplitText\.min\.js/);
+  assert.doesNotMatch(index, /3\.13\.0|SPLIT_TEXT/);
+});
+
+test("generate leaves SplitText out when it is disabled", () => {
+  const { folder } = createProject();
+  const index = readGeneratedFile(folder, "index.html");
+
+  assert.doesNotMatch(index, /SplitText|SPLIT_TEXT/);
+  assert.match(index, /gsap\/3\.13\.0\/gsap\.min\.js/);
+  assert.doesNotMatch(index, /\n\s*\n\s*<script src="\.\/Creative\.js"/);
+});
+
+function readProjectFiles(folder) {
+  return {
+    creative: readGeneratedFile(folder, "Creative.js"),
+    script: readGeneratedFile(folder, "script.js"),
+    index: readGeneratedFile(folder, "index.html"),
+  };
+}
+
+test("add-ons can be added to and removed from an existing project", () => {
+  const { applyAddOns, detectAddOns } = require("../dist/addons.js");
+  const { folder } = createProject();
+  const original = readProjectFiles(folder);
+  const all = { autoScaleFonts: true, browserCheck: true, splitText: true };
+
+  assert.deepEqual(detectAddOns(original), {
+    autoScaleFonts: false,
+    browserCheck: false,
+    splitText: false,
+  });
+
+  const added = applyAddOns(original, all);
+
+  assert.deepEqual(detectAddOns(added.files), all);
+  assert.deepEqual(added.warnings, []);
+  assert.equal(
+    added.files.script.match(/await Creative\.autoScaleFont\(\);/g).length,
+    1,
+  );
+  assert.match(added.files.index, /gsap\/3\.15\.0\/gsap\.min\.js/);
+  assert.match(added.files.index, /gsap\/3\.15\.0\/SplitText\.min\.js/);
+  assert.doesNotThrow(() => new Function(added.files.creative));
+
+  const removed = applyAddOns(added.files, {
+    autoScaleFonts: false,
+    browserCheck: false,
+    splitText: false,
+  });
+
+  assert.equal(removed.files.creative, original.creative);
+  assert.equal(removed.files.script, original.script);
+  assert.equal(
+    removed.files.index,
+    original.index.replace("gsap/3.13.0/", "gsap/3.15.0/"),
+  );
+});
+
+test("add-ons detects what a generated project already has", () => {
+  const { detectAddOns } = require("../dist/addons.js");
+  const { folder } = createProject({
+    autoScaleFonts: true,
+    browserCheck: true,
+    splitText: true,
+  });
+
+  assert.deepEqual(detectAddOns(readProjectFiles(folder)), {
+    autoScaleFonts: true,
+    browserCheck: true,
+    splitText: true,
+  });
+});
+
+test("add-ons reports what it cannot change", () => {
+  const { applyAddOns } = require("../dist/addons.js");
+  const { folder } = createProject();
+  const files = readProjectFiles(folder);
+  const result = applyAddOns(
+    {
+      creative: "// no Creative object here",
+      script: "// no initCreative here",
+      index: "<html></html>",
+    },
+    { autoScaleFonts: true, browserCheck: true, splitText: true },
+  );
+
+  assert.equal(result.changes.length, 0);
+  assert.equal(result.warnings.length, 3);
+  assert.ok(files.creative.length > 0);
+});
+
 test("generate accepts positive whole frame counts", () => {
   const { folder } = createProject({ frames: 1 });
 
@@ -339,6 +499,8 @@ test("generate writes settings metadata for the project and selections", () => {
     ],
     placeholders: {},
     autoScaleFonts: false,
+    browserCheck: false,
+    splitText: false,
     agency: { id: 4, name: "Agency Inc" },
     advertiser: { id: 5, name: "Advertiser Corp" },
     adset: { id: 6, name: "Spring Launch" },

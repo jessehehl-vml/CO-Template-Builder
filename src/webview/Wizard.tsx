@@ -10,6 +10,7 @@ import NameSection from "./components/NameSection";
 import DimensionsSection from "./components/DimensionsSection";
 import PlaceholdersSection from "./components/PlaceholdersSection";
 import FontsSection from "./components/FontsSection";
+import AddOnsSection from "./components/AddOnsSection";
 import CreateSection from "./components/CreateSection";
 import WizardFooter from "./components/WizardFooter";
 import AdvertiserSelectionModal from "./components/AdvertiserSelectionModal";
@@ -335,6 +336,8 @@ export default function Wizard() {
   const [autoFillPlaceholderContent, setAutoFillPlaceholderContent] =
     useState(false);
   const [autoScaleFonts, setAutoScaleFonts] = useState(false);
+  const [browserCheck, setBrowserCheck] = useState(false);
+  const [splitText, setSplitText] = useState(false);
 
   // Export to CO
   const [exportMode, setExportMode] = useState(
@@ -872,6 +875,13 @@ export default function Wizard() {
             JSON.stringify(loadedSettings.selectedFonts ?? [])
         );
 
+      case 5:
+        return (
+          autoScaleFonts !== Boolean(loadedSettings.autoScaleFonts) ||
+          browserCheck !== Boolean(loadedSettings.browserCheck) ||
+          splitText !== Boolean(loadedSettings.splitText)
+        );
+
       default:
         return false;
     }
@@ -960,6 +970,9 @@ export default function Wizard() {
           })),
         };
 
+      case 5:
+        return { autoScaleFonts, browserCheck, splitText };
+
       default:
         return {};
     }
@@ -971,6 +984,8 @@ export default function Wizard() {
     }
 
     setAutoScaleFonts(Boolean(loadedSettings.autoScaleFonts));
+    setBrowserCheck(Boolean(loadedSettings.browserCheck));
+    setSplitText(Boolean(loadedSettings.splitText));
   }, [settingsMode, settingsLoaded, loadedSettings]);
 
   // Selected adset
@@ -1165,6 +1180,10 @@ export default function Wizard() {
                   setAutoFillPlaceholderContent={setAutoFillPlaceholderContent}
                   autoScaleFonts={autoScaleFonts}
                   setAutoScaleFonts={setAutoScaleFonts}
+                  browserCheck={browserCheck}
+                  setBrowserCheck={setBrowserCheck}
+                  splitText={splitText}
+                  setSplitText={setSplitText}
                   onExport={() => setExportMode(true)}
                 />
               )}
@@ -1251,6 +1270,17 @@ export default function Wizard() {
                   setLoadingAgencies={setLoadingAgencies}
                   apiError={apiError}
                   setApiError={setApiError}
+                />
+              )}
+
+              {settingsSection === 5 && (
+                <AddOnsSection
+                  autoScaleFonts={autoScaleFonts}
+                  setAutoScaleFonts={setAutoScaleFonts}
+                  browserCheck={browserCheck}
+                  setBrowserCheck={setBrowserCheck}
+                  splitText={splitText}
+                  setSplitText={setSplitText}
                 />
               )}
             </>
@@ -1514,6 +1544,8 @@ export default function Wizard() {
             getCurrentSettings={getCurrentSettings}
             autoFillPlaceholderContent={autoFillPlaceholderContent}
             autoScaleFonts={autoScaleFonts}
+            browserCheck={browserCheck}
+            splitText={splitText}
           />
         )}
       </div>

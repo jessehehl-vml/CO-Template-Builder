@@ -1,6 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
+import {
+  AUTO_SCALE_FONT_CODE,
+  BROWSER_CHECK_CODE,
+  GSAP_LATEST,
+} from "./addons";
 
 type SelectedFont = {
   family: string;
@@ -56,6 +61,8 @@ export type BoilerplateMessage = {
   frames?: number;
   autoFillPlaceholderContent?: boolean;
   autoScaleFonts?: boolean;
+  browserCheck?: boolean;
+  splitText?: boolean;
   selectedAgency?: SettingsSelection | null;
   selectedAdvertiser?: SettingsSelection | null;
   selectedAdset?: SettingsSelection | null;
@@ -108,6 +115,8 @@ export class BoilerplateGenerator {
       ),
       placeholders: this.buildPlaceholders(message),
       autoScaleFonts: Boolean(message.autoScaleFonts),
+      browserCheck: Boolean(message.browserCheck),
+      splitText: Boolean(message.splitText),
     };
 
     this.addSelection(settings, "agency", message.selectedAgency);
@@ -291,6 +300,7 @@ export class BoilerplateGenerator {
       templates.creative,
       frameCount,
       message.autoScaleFonts,
+      message.browserCheck,
     );
     const script = this.buildScript(
       templates.script,
@@ -307,6 +317,7 @@ export class BoilerplateGenerator {
         templates.index,
         generator,
         message.selectedFonts,
+        message.splitText,
       ),
       script,
       styles: this.buildStyles(templates.styles, message.selectedFonts),
@@ -344,6 +355,7 @@ export class BoilerplateGenerator {
     template: string,
     generator: string,
     fonts: SelectedFont[],
+    splitText?: boolean,
   ): string {
     const fontLinks = fonts
       .map(
@@ -352,7 +364,17 @@ export class BoilerplateGenerator {
       )
       .join("\n");
 
-    return template
+    // SplitText must match the GSAP core version, so both move to the latest.
+    const html = splitText
+      ? template
+          .replace("gsap/3.13.0/gsap.min.js", `gsap/${GSAP_LATEST}/gsap.min.js`)
+          .replace(
+            "{{SPLIT_TEXT}}",
+            `<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/${GSAP_LATEST}/SplitText.min.js"></script>`,
+          )
+      : template.replace(/\n[ \t]*\{\{SPLIT_TEXT\}\}/, "");
+
+    return html
       .replaceAll("{{GENERATOR}}", generator)
       .replace("{{FONT_LINKS}}", fontLinks);
   }
@@ -370,53 +392,15 @@ export class BoilerplateGenerator {
     template: string,
     frameCount: number,
     autoScaleFonts?: boolean,
+    browserCheck?: boolean,
   ): string {
-    return template.replace("/* FRAME_COUNT */ 1", String(frameCount)).replace(
-      "/* AUTO_SCALE_FONT */",
-      autoScaleFonts
-        ? `  autoScaleFont: function (minSize = 8, selector = "[data-font_autoscale]") {
-    const elements = $(selector).toArray();
-
-    return Promise.all(
-      elements.map((element) => {
-        return new Promise((resolve) => {
-          const styles = window.getComputedStyle(element);
-
-          let fontSize = parseFloat(styles.fontSize);
-          const maxHeight = parseFloat(styles.maxHeight);
-          const maxWidth = element.clientWidth;
-
-          if (
-            !Number.isFinite(fontSize) ||
-            !Number.isFinite(maxHeight) ||
-            !maxWidth
-          ) {
-            resolve();
-            return;
-          }
-
-          const fits = () =>
-            element.scrollHeight <= maxHeight && element.scrollWidth <= maxWidth;
-
-          const reduceFontSize = () => {
-            if (fits() || fontSize <= minSize) {
-              resolve();
-              return;
-            }
-
-            fontSize -= 0.5;
-            element.style.fontSize = \`\${fontSize}px\`;
-
-            requestAnimationFrame(reduceFontSize);
-          };
-
-          requestAnimationFrame(reduceFontSize);
-        });
-      }),
-    );
-  },`
-        : "",
-    );
+    return template
+      .replace("/* FRAME_COUNT */ 1", String(frameCount))
+      .replace("/* BROWSER_CHECK */", browserCheck ? BROWSER_CHECK_CODE : "")
+      .replace(
+        "/* AUTO_SCALE_FONT */",
+        autoScaleFonts ? AUTO_SCALE_FONT_CODE : "",
+      );
   }
 
   private buildScript(

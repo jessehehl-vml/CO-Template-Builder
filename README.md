@@ -209,10 +209,18 @@ Where available, fonts can be loaded from Creative Optimizations for the selecte
 
 The final step creates the template boilerplate and generates the project files.
 
-This step includes options for:
+This step includes options in two groups.
+
+**Project setup**
 
 - **Number of frames** — choose how many animation frames the creative should contain.
 - **Auto-fill placeholder content** — automatically generate code that fills the creative with the placeholder content selected during setup.
+
+**Add-ons** (optional code added to `Creative.js` and `index.html`)
+
+- **Auto-scale fonts** — adds `Creative.autoScaleFont()`, which shrinks text marked with `data-font_autoscale` until it fits.
+- **Browser check** — adds `Creative.check` with helpers such as `Creative.check.mobile()`, `desktop()`, `ios()`, `android()`, `osx()`, `windows()`, `retina()`, `chrome()`, `safari()`, `firefox()`, `edge()` and `ie()`.
+- **SplitText** — adds GSAP's SplitText plugin to `index.html`. GSAP core and SplitText are loaded from cdnjs at the latest version (3.15.0), so they always match.
 
 For example, selecting three frames generates the corresponding frame structure so you can build a three-frame animation directly in the project.
 
@@ -259,6 +267,17 @@ settings/content.json
 ```
 
 You normally do not need to edit these files manually unless you have a specific reason to do so.
+
+To change settings later, use the **Settings** menu in the extension sidebar: **Adset details**, **Dimensions**, **Placeholders**, **Fonts** and **Add-ons**.
+
+### Add-ons
+
+**Add-ons** lets you turn **Auto-scale fonts**, **Browser check** and **SplitText** on or off after the boilerplate has been created. Saving updates `src/Creative.js`, `src/script.js` and `src/index.html` directly:
+
+- Turning an add-on on adds its code. Auto-scale fonts also adds `await Creative.autoScaleFont();` to `initCreative`, and SplitText loads the latest GSAP (3.15.0) together with the plugin so the versions match.
+- Turning an add-on off deletes its code, so keep a copy of anything you changed in it.
+- The checkboxes show what is really in your files, so add-ons you added or removed by hand are picked up correctly.
+- If the code cannot be found or placed, for example because `Creative.js` was restructured, the extension tells you what to change by hand and leaves that file alone.
 
 ## Adding your creative
 

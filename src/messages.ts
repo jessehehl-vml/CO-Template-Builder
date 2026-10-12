@@ -17,7 +17,7 @@ export type SidebarMessage =
   | { type: "openExport" }
   | { type: "exportToZip" }
   | { type: "openPreview" }
-  | { type: "openSettingsSection"; section: 1 | 2 | 3 | 4 };
+  | { type: "openSettingsSection"; section: 1 | 2 | 3 | 4 | 5 };
 
 /** Messages handled identically by the settings and wizard panels. */
 export type CommonPanelMessage =

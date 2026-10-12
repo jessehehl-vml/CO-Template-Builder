@@ -109,6 +109,7 @@ window.Creative = {
   awaitAll: function () {
     return Promise.all(this.waits);
   },
+  /* BROWSER_CHECK */
   /* AUTO_SCALE_FONT */
   click: function (url, query) {
     window.dispatchEvent(

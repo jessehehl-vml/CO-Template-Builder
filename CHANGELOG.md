@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.7
+
+### Added
+
+- **Add-ons** menu in Settings: turn Auto-scale fonts, Browser check and SplitText on or off after the boilerplate has been created. Saving adds or removes the code in `src/Creative.js`, `src/script.js` and `src/index.html`. The checkboxes show what is really in the files, and anything that cannot be applied is reported instead of changed.
+- **Browser check** option: adds `Creative.check` with helpers such as `mobile()`, `desktop()`, `ios()`, `android()`, `osx()`, `windows()`, `retina()`, `chrome()`, `safari()`, `firefox()`, `edge()` and `ie()`. The code is rewritten for current browsers, including Chromium Edge and iPadOS.
+- **SplitText** option: adds GSAP's SplitText plugin to `index.html`. GSAP core and SplitText load at the latest version (3.15.0) so they match.
+
+### Changed
+
+- The "Create boilerplate" step groups its options into **Project setup** (number of frames, auto-fill) and **Add-ons** (auto-scale fonts, browser check, SplitText).
+- The changelog is now included in the package, so it shows on the Marketplace.
+
+### Fixed
+
+- Saving Adset details, Dimensions or Fonts no longer replaces the saved placeholders in `settings.json` with an empty set.
+
 ## 0.0.6
 
 ### Added

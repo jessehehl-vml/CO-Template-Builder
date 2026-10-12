@@ -1,3 +1,5 @@
+import AddOnsOptions from "./AddOnsOptions";
+
 type CreateSectionProps = {
   name: string;
   dimensionType: "single" | "responsive";
@@ -9,6 +11,10 @@ type CreateSectionProps = {
   setAutoFillPlaceholderContent: React.Dispatch<React.SetStateAction<boolean>>;
   autoScaleFonts: boolean;
   setAutoScaleFonts: React.Dispatch<React.SetStateAction<boolean>>;
+  browserCheck: boolean;
+  setBrowserCheck: React.Dispatch<React.SetStateAction<boolean>>;
+  splitText: boolean;
+  setSplitText: React.Dispatch<React.SetStateAction<boolean>>;
   onExport: () => void;
 };
 export default function CreateSection({
@@ -22,6 +28,10 @@ export default function CreateSection({
   setAutoFillPlaceholderContent,
   autoScaleFonts,
   setAutoScaleFonts,
+  browserCheck,
+  setBrowserCheck,
+  splitText,
+  setSplitText,
   onExport,
 }: CreateSectionProps) {
   return (
@@ -55,11 +65,10 @@ export default function CreateSection({
           </strong>{" "}
         </div>{" "}
       </div>{" "}
+      <h2 className="create-group-title">Project setup</h2>
       <div className="create-card">
-        {" "}
         <div className="create-option">
-          {" "}
-          <label htmlFor="frame-count">Number of frames</label>{" "}
+          <label htmlFor="frame-count">Number of frames</label>
           <input
             id="frame-count"
             type="number"
@@ -72,34 +81,32 @@ export default function CreateSection({
                 setFrameCount(value);
               }
             }}
-          />{" "}
-        </div>{" "}
+          />
+        </div>
         <div
           className="create-option"
           onClick={() => setAutoFillPlaceholderContent((current) => !current)}
         >
-          {" "}
           <div className="create-checkbox-label">
-            {" "}
             <div className="checkbox">
-              {" "}
-              {autoFillPlaceholderContent ? "✓" : ""}{" "}
-            </div>{" "}
-            <span>Auto-fill placeholder content</span>{" "}
-          </div>{" "}
+              {autoFillPlaceholderContent ? "✓" : ""}
+            </div>
+            <span>Auto-fill placeholder content</span>
+          </div>
         </div>
-        <div
-          className="create-option"
-          onClick={() => setAutoScaleFonts((current) => !current)}
-        >
-          {" "}
-          <div className="create-checkbox-label">
-            {" "}
-            <div className="checkbox"> {autoScaleFonts ? "✓" : ""} </div>{" "}
-            <span>Auto-scale fonts</span>{" "}
-          </div>{" "}
-        </div>
-      </div>{" "}
+      </div>
+      <h2 className="create-group-title">Add-ons</h2>
+      <p className="create-group-hint">
+        Optional code added to Creative.js and index.html.
+      </p>
+      <AddOnsOptions
+        autoScaleFonts={autoScaleFonts}
+        setAutoScaleFonts={setAutoScaleFonts}
+        browserCheck={browserCheck}
+        setBrowserCheck={setBrowserCheck}
+        splitText={splitText}
+        setSplitText={setSplitText}
+      />
     </section>
   );
 }
