@@ -57,7 +57,7 @@ function applyZoom() {
     stage.style.transform = "";
   });
 }
-function createQaFrames(width, height, exportContent) {
+function createQaFrames(width, height, exportContent, onStoryboardResult) {
   console.log("[QA] createQaFrames()", {
     width,
     height,
@@ -173,11 +173,27 @@ function createQaFrames(width, height, exportContent) {
 
       storyboardImage.alt = `${width}x${height} storyboard frame ${frame}`;
 
+      // Storyboards may be 2x; render at the banner's CSS size.
+      storyboardImage.style.width = `${width}px`;
+      storyboardImage.style.height = `${height}px`;
+
       console.log(`[QA] Frame ${frame} looking for storyboard`, {
         width,
         height,
         frame,
       });
+
+      // Shown by CSS only while the overlay is enabled.
+      const markStoryboardMissing = () => {
+        storyboardSection.remove();
+
+        const notice = document.createElement("div");
+        notice.className = "qa-storyboard-missing";
+        notice.textContent = `No storyboard available for frame ${frame}`;
+        frameContainer.appendChild(notice);
+
+        onStoryboardResult?.(frame, frameCount, false);
+      };
 
       fetch(`/storyboards/find?width=${width}&height=${height}&frame=${frame}`)
         .then(async (response) => {
@@ -203,6 +219,10 @@ function createQaFrames(width, height, exportContent) {
             });
           });
 
+          storyboardImage.addEventListener("load", () => {
+            onStoryboardResult?.(frame, frameCount, true);
+          });
+
           storyboardImage.addEventListener("error", (error) => {
             console.error(
               `[QA] Frame ${frame} storyboard IMAGE FAILED TO LOAD`,
@@ -213,7 +233,7 @@ function createQaFrames(width, height, exportContent) {
               },
             );
 
-            storyboardSection.remove();
+            markStoryboardMissing();
           });
         })
         .catch((error) => {
@@ -224,7 +244,7 @@ function createQaFrames(width, height, exportContent) {
             error: error.message,
           });
 
-          storyboardSection.remove();
+          markStoryboardMissing();
         });
 
       storyboardSection.appendChild(storyboardTitle);
@@ -1200,6 +1220,125 @@ function findOverflowingText(doc) {
   return issues;
 }
 
+// Images that never got a src, for example from an empty placeholder.
+function findMissingImages(doc) {
+  const issues = [];
+
+  try {
+    doc.querySelectorAll("img").forEach((img) => {
+      if (
+        img.getAttribute("src")?.trim() ||
+        doc.defaultView.getComputedStyle(img).display === "none"
+      ) {
+        return;
+      }
+
+      const label = describeElement(img);
+
+      issues.push({
+        kind: "image",
+        key: label,
+        message: `The image "${label}" has no src, so no picture is shown`,
+      });
+    });
+  } catch {
+    // The banner navigated away or is not readable.
+  }
+
+  return issues;
+}
+
+// Painted unless it or an ancestor is hidden or fully transparent.
+function isShown(win, el) {
+  if (win.getComputedStyle(el).visibility === "hidden") {
+    return false;
+  }
+
+  for (let node = el; node?.nodeType === 1; node = node.parentElement) {
+    const style = win.getComputedStyle(node);
+
+    if (style.display === "none" || Number(style.opacity) === 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Pauses on each frame's end state and reports visible text outside the banner or cut off.
+// Leaves the timeline paused, so run it after the checks that need the animation.
+function findFrameOverflow(win) {
+  const issues = [];
+  const creative = win.Creative;
+
+  if (!creative?.pause) {
+    return issues;
+  }
+
+  try {
+    const frames = Number(creative.frames) || 1;
+    const width = win.innerWidth;
+    const height = win.innerHeight;
+
+    for (let frame = 1; frame <= frames; frame++) {
+      creative.pause(`frame${frame}-preview`);
+
+      win.document.body.querySelectorAll("*").forEach((el) => {
+        const hasText = [...el.childNodes].some(
+          (node) => node.nodeType === 3 && node.textContent.trim(),
+        );
+
+        if (!hasText || ["SCRIPT", "STYLE"].includes(el.tagName)) {
+          return;
+        }
+
+        const rect = el.getBoundingClientRect();
+
+        if (!rect.width || !rect.height || !isShown(win, el)) {
+          return;
+        }
+
+        const label = describeElement(el);
+        const edges = [
+          rect.left < -1 && "left",
+          rect.right > width + 1 && "right",
+          rect.top < -1 && "top",
+          rect.bottom > height + 1 && "bottom",
+        ].filter(Boolean);
+
+        if (edges.length) {
+          issues.push({
+            kind: "layout",
+            key: `${label}|frame${frame}|out`,
+            message: `Frame ${frame}: text in "${label}" sticks out of the banner (${edges.join(", ")})`,
+          });
+        }
+
+        const style = win.getComputedStyle(el);
+        const clips =
+          style.overflowX !== "visible" || style.overflowY !== "visible";
+
+        if (
+          clips &&
+          style.textOverflow !== "ellipsis" &&
+          (el.scrollHeight > el.clientHeight + 1 ||
+            el.scrollWidth > el.clientWidth + 1)
+        ) {
+          issues.push({
+            kind: "layout",
+            key: `${label}|frame${frame}|clipped`,
+            message: `Frame ${frame}: text in "${label}" is cut off by its box`,
+          });
+        }
+      });
+    }
+  } catch {
+    // The banner navigated away or is not readable.
+  }
+
+  return issues;
+}
+
 const CLICK_EVENT_TYPES = ["click", "tap", "touchend", "mouseup", "pointerup"];
 const CLICK_CALL = /\bCreative\s*\.\s*click\s*\(/;
 
@@ -1436,13 +1575,19 @@ function testBannerFrame(width, height, content, longCheck = false) {
       const loopIssues = longCheck
         ? findLongAnimations(iframe.contentWindow)
         : [];
+      const imageIssues = iframe.contentDocument
+        ? findMissingImages(iframe.contentDocument)
+        : [];
+
+      // Pauses the timeline, so it comes after the loop check.
+      warnings.push(...findFrameOverflow(iframe.contentWindow));
 
       const clickIssues = await testClickOuts(iframe, content);
 
       window.removeEventListener("message", onMessage);
       iframe.remove();
       resolve({
-        errors: [...errors, ...loopIssues, ...clickIssues],
+        errors: [...errors, ...loopIssues, ...imageIssues, ...clickIssues],
         warnings,
       });
     };
@@ -1518,6 +1663,7 @@ function summarizeVariantTest(results, total, skipped) {
           ? "resource"
           : error.kind === "layout" ||
               error.kind === "click" ||
+              error.kind === "image" ||
               error.kind === "loop"
             ? `${error.kind}|${error.key}`
             : [error.message, error.file, error.line].join("|");
@@ -1549,15 +1695,20 @@ function summarizeVariantTest(results, total, skipped) {
       const isClick = error.kind === "click";
 
       return {
-        severity: error.kind === "layout" ? "warning" : "error",
+        severity:
+          error.kind === "layout" || error.kind === "image"
+            ? "warning"
+            : "error",
         rule:
           error.kind === "layout"
             ? "RUN-002"
-            : isClick
-              ? "CLK-002"
-              : error.kind === "loop"
-                ? "ANI-002"
-                : "RUN-001",
+            : error.kind === "image"
+              ? "RUN-003"
+              : isClick
+                ? "CLK-002"
+                : error.kind === "loop"
+                  ? "ANI-002"
+                  : "RUN-001",
         file: error.file ?? "",
         line: error.line || undefined,
         message:
@@ -2056,6 +2207,31 @@ function render() {
     const overlayCheckbox = document.createElement("input");
     overlayCheckbox.type = "checkbox";
 
+    // Enabled once at least one frame storyboard is found for this size.
+    overlayCheckbox.disabled = true;
+    overlayLabel.title = "Checking for storyboards...";
+    overlayLabel.classList.add("disabled");
+
+    const storyboardResults = new Map();
+
+    const onStoryboardResult = (frame, frameCount, found) => {
+      storyboardResults.set(frame, found);
+
+      const foundCount = [...storyboardResults.values()].filter(Boolean).length;
+      const complete = storyboardResults.size >= frameCount;
+
+      if (foundCount > 0) {
+        overlayCheckbox.disabled = false;
+        overlayLabel.classList.remove("disabled");
+        overlayLabel.title =
+          complete && foundCount < frameCount
+            ? `Storyboard found for ${foundCount} of ${frameCount} frames`
+            : "";
+      } else if (complete) {
+        overlayLabel.title = "No storyboard available for this size";
+      }
+    };
+
     const overlayText = document.createElement("span");
     overlayText.textContent = "Overlay";
 
@@ -2157,7 +2333,12 @@ function render() {
 
     if (qaMode) {
       frameWrapper.appendChild(
-        createQaFrames(dimension.width, dimension.height, exportContent),
+        createQaFrames(
+          dimension.width,
+          dimension.height,
+          exportContent,
+          onStoryboardResult,
+        ),
       );
     } else {
       const iframe = document.createElement("iframe");

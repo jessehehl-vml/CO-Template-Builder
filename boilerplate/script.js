@@ -22,9 +22,9 @@ async function initCreative(content) {
   createInteraction();
 
   await Creative.awaitAll();
+  /* AUTO_SCALE_FONTS */
 
   startAnimations();
-  /* AUTO_SCALE_FONTS */
   mainTimeline.play();
 }
 

@@ -122,6 +122,29 @@ test("generate autofills text and image placeholders", () => {
   );
 });
 
+test("generate registers several images with one Creative.addWait call", () => {
+  const { folder } = createProject({
+    autoFillPlaceholderContent: true,
+    placeholderVariants: [
+      {
+        dimensions: [
+          {
+            placeholders: [
+              { name: "logo", type: "image", value: "a.jpg" },
+              { name: "trail", type: "image", value: "b.jpg" },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  const script = readGeneratedFile(folder, "script.js");
+
+  assert.match(script, /Creative\.addWait\(\$\("\.logo"\), \$\("\.trail"\)\);/);
+  assert.equal(script.match(/Creative\.addWait\(/g).length, 1);
+});
+
 test("generate omits placeholder autofill when disabled", () => {
   const { folder } = createProject({
     autoFillPlaceholderContent: false,

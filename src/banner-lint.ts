@@ -112,6 +112,7 @@ function fontHosts(files: BannerFile[]): string[] {
 export function lintBanner(
   files: BannerFile[],
   assets: BannerAsset[],
+  sizes: string[] = [],
 ): Finding[] {
   const findings: Finding[] = [];
   const allowedHosts = new Set([...ALLOWED_HOSTS, ...fontHosts(files)]);
@@ -318,6 +319,9 @@ export function lintBanner(
   }
 
   checkContract(files, report);
+  checkSelectors(files, report);
+  checkLibraries(files, report);
+  checkDimensionFiles(files, sizes, report);
 
   for (const asset of assets) {
     if (asset.bytes > MAX_ASSET_BYTES) {
@@ -686,7 +690,40 @@ function checkImageWaits(
 
   const waits = [
     ...text.matchAll(/Creative\.addWait\s*\(([^;]*?)\)\s*(?:;|\n|$)/g),
-  ].map((match) => ({ argument: match[1], index: match.index ?? 0 }));
+  ].map((match) => ({
+    argument: match[1],
+    index: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+  }));
+
+  // addWait takes several elements, so back-to-back calls can be one call.
+  let runStart = 0;
+
+  for (let i = 1; i <= waits.length; i++) {
+    const joined =
+      i < waits.length &&
+      text.slice(waits[i - 1].end, waits[i].index).trim() === "";
+
+    if (joined) {
+      continue;
+    }
+
+    if (i - runStart > 1) {
+      report({
+        severity: "info",
+        rule: "ANI-001",
+        file: file.path,
+        line: lineOf(text, waits[runStart].index),
+        message: `${i - runStart} Creative.addWait calls follow each other.`,
+        suggestion: `Combine them: Creative.addWait(${waits
+          .slice(runStart, i)
+          .map((wait) => wait.argument.trim())
+          .join(", ")}).`,
+      });
+    }
+
+    runStart = i;
+  }
 
   const covers = (
     wait: { argument: string },
@@ -817,6 +854,424 @@ function checkContract(files: BannerFile[], report: (draft: Draft) => void) {
       line: lineOf(text, play),
       message: "The timeline plays before Creative.awaitAll() has finished.",
       suggestion: "await Creative.awaitAll() before calling play().",
+    });
+  }
+
+  checkPreviewTimelines(creative, script, text, report);
+}
+
+// Block body of a named function, or null when it is not found.
+function functionBody(text: string, name: string): string | null {
+  const match = new RegExp(`\\bfunction\\s+${name}\\s*\\([^)]*\\)\\s*\\{`).exec(
+    text,
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const open = match.index + match[0].length - 1;
+  let depth = 0;
+
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === "{") {
+      depth++;
+    } else if (text[i] === "}" && --depth === 0) {
+      return text.slice(open + 1, i);
+    }
+  }
+
+  return null;
+}
+
+// QA mode seeks mainTimeline to "frameN-preview", which sits at the
+// "preview-ready" label of each frame timeline.
+function checkPreviewTimelines(
+  creative: BannerFile | undefined,
+  script: BannerFile,
+  text: string,
+  report: (draft: Draft) => void,
+) {
+  const problem = (
+    severity: "error" | "warning",
+    file: string,
+    message: string,
+    suggestion: string,
+    line?: number,
+  ) =>
+    report({
+      severity,
+      rule: "ANI-003",
+      file,
+      message,
+      suggestion,
+      ...(line ? { line } : {}),
+    });
+
+  const creativeCode = creative
+    ? stripCodeComments(creative.content, true)
+    : "";
+
+  if (creative) {
+    if (
+      !creativeCode.includes("preview-pause") ||
+      !/\.setupPreviewControls\s*\(/.test(creativeCode)
+    ) {
+      problem(
+        "error",
+        "Creative.js",
+        "Creative.js does not handle preview-pause, so QA mode cannot pause on a frame.",
+        "Restore setupPreviewControls() from the template and call it in Creative.start().",
+      );
+    }
+
+    if (!creativeCode.includes("creative-ready")) {
+      problem(
+        "error",
+        "Creative.js",
+        "Creative.js never sends creative-ready, so QA mode never asks the banner to pause.",
+        "Restore notifyReady() from the template and call it after initCreative.",
+      );
+    }
+  }
+
+  if (!/\b(?:const|let|var)\s+mainTimeline\b/.test(text)) {
+    problem(
+      "error",
+      "script.js",
+      "mainTimeline is not declared, so QA mode has no timeline to pause.",
+      "Declare const mainTimeline = gsap.timeline({ paused: true }).",
+    );
+  }
+
+  // The template's markers are still in place, so there is nothing to check yet.
+  if (script.content.includes("/* FRAME_TIMELINES */")) {
+    return;
+  }
+
+  const declared = [...text.matchAll(/\bframe(\d+)Timeline\b/g)].map((match) =>
+    Number(match[1]),
+  );
+  const configured = Number(/\bframes\s*:\s*(\d+)/.exec(creativeCode)?.[1]);
+  const highest = Math.max(0, ...declared);
+  const count =
+    Number.isInteger(configured) && configured > 0 ? configured : highest;
+
+  if (highest > count) {
+    problem(
+      "error",
+      "Creative.js",
+      `Creative.frames is ${count}, but script.js uses frame${highest}Timeline.`,
+      "Make Creative.frames match the number of frames, or QA mode shows too few.",
+    );
+  }
+
+  for (let n = 1; n <= count; n++) {
+    const label = new RegExp(
+      `addLabel\\(\\s*["'\`]frame${n}-preview["'\`]\\s*(,)?`,
+    ).exec(text);
+
+    if (!label) {
+      problem(
+        "error",
+        "script.js",
+        `The label "frame${n}-preview" is never added to mainTimeline.`,
+        `Add mainTimeline.addLabel("frame${n}-preview", frame${n}Start + frame${n}Timeline.labels["preview-ready"]).`,
+      );
+    } else if (!label[1]) {
+      problem(
+        "warning",
+        "script.js",
+        `The label "frame${n}-preview" has no position, so it lands at the end of whatever is on mainTimeline.`,
+        `Position it at frame${n}Timeline.labels["preview-ready"] plus the frame's start time.`,
+        lineOf(text, label.index),
+      );
+    }
+
+    if (
+      !new RegExp(`\\bmainTimeline\\s*\\.add\\(\\s*frame${n}Timeline\\b`).test(
+        text,
+      )
+    ) {
+      problem(
+        "error",
+        "script.js",
+        `frame${n}Timeline is never added to mainTimeline, so it never plays or seeks.`,
+        `Call mainTimeline.add(frame${n}Timeline).`,
+      );
+    }
+
+    const body = functionBody(text, `createFrame${n}Animation`) ?? text;
+
+    if (!/["'`]preview-ready["'`]/.test(body)) {
+      problem(
+        "error",
+        "script.js",
+        `Frame ${n} has no "preview-ready" label, so QA mode cannot find its end state.`,
+        `Add .addLabel("preview-ready") to frame${n}Timeline once the frame is fully shown.`,
+      );
+    }
+  }
+}
+
+const SELECTOR_CALLS = [
+  /\$\(\s*(["'])([^"'\n]*?)\1\s*[,)]/g,
+  /\b(?:querySelector(?:All)?|closest|find)\(\s*(["'])([^"'\n]*?)\1\s*\)/g,
+  /\.(?:to|from|fromTo|set)\(\s*(["'])([^"'\n]*?)\1\s*,/g,
+  /\bgsap\.utils\.toArray\(\s*(["'])([^"'\n]*?)\1\s*[,)]/g,
+];
+
+function selectorTokens(selector: string): string[] {
+  const cleaned = selector.replace(
+    /\[[^\]]*\]|\([^)]*\)|"[^"]*"|'[^']*'/g,
+    " ",
+  );
+
+  return cleaned.match(/[.#][A-Za-z_-][\w-]*/g) ?? [];
+}
+
+// Classes and ids that exist in the markup or are created by the script.
+function knownSelectors(htmlText: string, scripts: string[]): Set<string> {
+  const known = new Set<string>();
+  const addClasses = (list: string) =>
+    list
+      .split(/\s+/)
+      .filter(Boolean)
+      .forEach((name) => known.add(`.${name}`));
+
+  for (const match of htmlText.matchAll(/\bclass\s*=\s*["']([^"']*)["']/gi)) {
+    addClasses(match[1]);
+  }
+
+  for (const match of htmlText.matchAll(/\bid\s*=\s*["']([^"']+)["']/gi)) {
+    known.add(`#${match[1].trim()}`);
+  }
+
+  for (const script of scripts) {
+    const classLists = [
+      /\bclass\s*[=:]\s*\\?["']([^"'\\]+)/g,
+      /\bclassName\s*=\s*["']([^"']+)/g,
+      /\.(?:addClass|removeClass|toggleClass)\(\s*["']([^"']+)["']/g,
+      /\.attr\(\s*["']class["']\s*,\s*["']([^"']+)["']/g,
+      /\b(?:lines|words|chars)Class\s*:\s*["']([^"']+)["']/g,
+    ];
+
+    for (const pattern of classLists) {
+      for (const match of script.matchAll(pattern)) {
+        addClasses(match[1]);
+      }
+    }
+
+    for (const match of script.matchAll(/\bclassList\.\w+\(([^)]*)\)/g)) {
+      for (const name of match[1].matchAll(/["']([^"']+)["']/g)) {
+        addClasses(name[1]);
+      }
+    }
+
+    for (const match of script.matchAll(
+      /\bid\s*[=:]\s*\\?["']([^"'\\]+)|\.attr\(\s*["']id["']\s*,\s*["']([^"']+)["']/g,
+    )) {
+      known.add(`#${(match[1] ?? match[2]).trim()}`);
+    }
+  }
+
+  return known;
+}
+
+// A selector that matches nothing fails silently: GSAP only logs a warning.
+function checkSelectors(files: BannerFile[], report: (draft: Draft) => void) {
+  const htmlText = files
+    .filter((file) => /\.html?$/i.test(file.path))
+    .map((file) => stripHtmlComments(file.content))
+    .join("\n");
+
+  if (!htmlText.trim()) {
+    return;
+  }
+
+  const scripts = files
+    .filter(
+      (file) =>
+        path.extname(file.path).toLowerCase() === ".js" &&
+        !file.path.includes(".min.") &&
+        file.path !== "Creative.js",
+    )
+    .map((file) => ({
+      path: file.path,
+      text: stripCodeComments(file.content, true),
+    }));
+
+  const known = knownSelectors(
+    htmlText,
+    scripts.map((script) => script.text),
+  );
+
+  for (const script of scripts) {
+    const reported = new Set<string>();
+
+    for (const pattern of SELECTOR_CALLS) {
+      for (const match of script.text.matchAll(pattern)) {
+        const selector = match[2];
+
+        if (selector.trimStart().startsWith("<") || selector.includes("${")) {
+          continue;
+        }
+
+        for (const token of selectorTokens(selector)) {
+          if (known.has(token) || reported.has(token)) {
+            continue;
+          }
+
+          reported.add(token);
+          report({
+            severity: "warning",
+            rule: "SEL-001",
+            file: script.path,
+            line: lineOf(script.text, match.index ?? 0),
+            message: `The selector "${selector}" uses ${token}, which is not in index.html or created by the script, so it matches nothing.`,
+            suggestion:
+              "Check the spelling against the markup, or remove the line if the element is gone.",
+          });
+        }
+      }
+    }
+  }
+}
+
+const GSAP_PLUGINS = [
+  "SplitText",
+  "ScrollTrigger",
+  "ScrollToPlugin",
+  "Draggable",
+  "MorphSVGPlugin",
+  "DrawSVGPlugin",
+  "CustomEase",
+  "MotionPathPlugin",
+  "TextPlugin",
+  "Flip",
+  "InertiaPlugin",
+  "ScrambleTextPlugin",
+];
+
+// Duplicate or mismatched library tags, and plugins used but never loaded.
+function checkLibraries(files: BannerFile[], report: (draft: Draft) => void) {
+  const index = files.find((file) => file.path === "index.html");
+
+  if (!index) {
+    return;
+  }
+
+  const html = stripHtmlComments(index.content);
+  const sources = [
+    ...html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi),
+  ].map((match) => match[1]);
+
+  const problem = (severity: "error" | "warning", message: string) =>
+    report({
+      severity,
+      rule: "LIB-001",
+      file: "index.html",
+      message,
+    });
+
+  const countOf = (pattern: RegExp) =>
+    sources.filter((source) => pattern.test(source)).length;
+
+  if (countOf(/jquery(?:[-.]\d[\d.]*)?(?:\.min)?\.js/i) > 1) {
+    problem("warning", "jQuery is loaded more than once.");
+  }
+
+  if (countOf(/(?:^|\/)gsap(?:\.min)?\.js(?:\?|$)/i) > 1) {
+    problem("warning", "GSAP is loaded more than once.");
+  }
+
+  const gsapNames = new RegExp(
+    `gsap|${GSAP_PLUGINS.join("|")}|TweenMax|TweenLite`,
+    "i",
+  );
+  const versions = new Set(
+    sources
+      .filter((source) => gsapNames.test(source))
+      .map((source) => /\/(\d+\.\d+\.\d+)\//.exec(source)?.[1])
+      .filter((version): version is string => Boolean(version)),
+  );
+
+  if (versions.size > 1) {
+    problem(
+      "warning",
+      `GSAP files are loaded in different versions (${[...versions].join(", ")}).`,
+    );
+  }
+
+  const code = files
+    .filter(
+      (file) =>
+        path.extname(file.path).toLowerCase() === ".js" &&
+        !file.path.includes(".min.") &&
+        file.path !== "Creative.js",
+    )
+    .map((file) => stripCodeComments(file.content, true))
+    .join("\n");
+
+  const loadsAll = sources.some((source) =>
+    /gsap[-.]?all|\/all(?:\.min)?\.js/i.test(source),
+  );
+
+  for (const plugin of GSAP_PLUGINS) {
+    const used = new RegExp(
+      `\\bnew\\s+${plugin}\\s*\\(|\\b${plugin}\\.create\\s*\\(|registerPlugin\\([^)]*\\b${plugin}\\b`,
+    ).test(code);
+
+    if (
+      used &&
+      !loadsAll &&
+      !sources.some((source) =>
+        source.toLowerCase().includes(plugin.toLowerCase()),
+      )
+    ) {
+      problem(
+        "warning",
+        `${plugin} is used in the script but no ${plugin} file is loaded in index.html.`,
+      );
+    }
+  }
+}
+
+// Responsive banners get per-size rules in dimensions/WxH.css.
+function checkDimensionFiles(
+  files: BannerFile[],
+  sizes: string[],
+  report: (draft: Draft) => void,
+) {
+  if (sizes.length === 0) {
+    return;
+  }
+
+  const present = new Set(
+    files
+      .map((file) => /^dimensions\/(\d+x\d+)\.css$/i.exec(file.path)?.[1])
+      .filter((size): size is string => Boolean(size)),
+  );
+
+  if (sizes.length > 1) {
+    for (const size of sizes.filter((size) => !present.has(size))) {
+      report({
+        severity: "warning",
+        rule: "DIM-001",
+        file: `dimensions/${size}.css`,
+        message: `There is no stylesheet for the size ${size}.`,
+        suggestion:
+          "Add dimensions/WxH.css, or ignore this if the size needs no rules of its own.",
+      });
+    }
+  }
+
+  for (const size of [...present].filter((size) => !sizes.includes(size))) {
+    report({
+      severity: "info",
+      rule: "DIM-001",
+      file: `dimensions/${size}.css`,
+      message: `dimensions/${size}.css belongs to a size that is not selected for this banner.`,
     });
   }
 }

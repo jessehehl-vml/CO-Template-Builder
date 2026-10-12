@@ -35,6 +35,12 @@ It is designed to keep the repetitive setup out of your workflow so you can focu
   - [Overlay](#overlay)
   - [Zoom](#zoom)
   - [Reloading previews](#reloading-previews)
+  - [Code review](#code-review)
+    - [Check code](#check-code)
+    - [Test variants](#test-variants)
+    - [AI review](#ai-review)
+    - [Reading the results](#reading-the-results)
+    - [Customizing the rules](#customizing-the-rules)
 
 - [Export](#export)
   - [ZIP export](#zip-export)
@@ -505,6 +511,63 @@ The preview layout also recalculates around the resized cards, making it easier 
 Use **Reload all** when you want to reload every preview iframe at the same time.
 
 This is useful after making changes that you want to test across all currently displayed sizes and frames.
+
+## Code review
+
+Use the **Code review** button in the preview header to open the review panel. It has three checks, which you can run separately and in any order:
+
+| Check             | What it does                                                             | Needs                    |
+| ----------------- | ------------------------------------------------------------------------ | ------------------------ |
+| **Check code**    | Fast automatic checks of the files in `src/` and of the feed content     | Nothing                  |
+| **Test variants** | Loads every variant at every size and reports what goes wrong at runtime | The preview              |
+| **AI review**     | Reviews the code against the rules with GitHub Copilot                   | GitHub Copilot signed in |
+
+Use the full-screen button in the panel header for a larger view with statistics and filters.
+
+### Check code
+
+Reads the project's source files and reports rule violations. It does not need Copilot, so it works for everyone. It looks at, among other things:
+
+- click-outs that do not go through `Creative.click`, or that cannot work
+- requests to hosts that are not approved, and non-HTTPS requests
+- endless or very long animations
+- unsafe code such as `eval` and `document.write`
+- the template contract: `window.Creative`, `initCreative` and a single `Creative.start()`
+- images that are not registered with `Creative.addWait`, and consecutive `Creative.addWait` calls that can be one
+- GSAP timelines that QA mode cannot pause: a missing `mainTimeline`, missing `frameN-preview` or `preview-ready` labels, frames that are not added to `mainTimeline`, and a `Creative.js` without the preview controls
+- selectors that match nothing, and duplicate or mismatched libraries and missing GSAP plugins
+- missing `dimensions/WxH.css` files for selected sizes
+- percentage translates used for centering
+- heavy assets and total weight
+- markup in feed values that the banner inserts as HTML
+
+### Test variants
+
+Loads every variant at every selected size in a hidden frame and reports:
+
+- JavaScript errors and files that fail to load
+- text that sticks out of its container, or out of the banner at the end of any frame
+- images without a `src`
+- click-outs that do not fire, or that pass something other than a click placeholder name
+- animations still running 15 seconds after the start (checked on the first variant of each size)
+
+Variants that appear to have the same problem are grouped into one finding that lists the affected variants and sizes.
+
+### AI review
+
+Sends the banner files to GitHub Copilot, which reviews them against the rules that code cannot check, such as hard-coded content, layout choices, dead code and repeated animation code. The findings from **Check code** are passed along so they are not repeated.
+
+VS Code may ask you to approve Copilot access the first time. Very large files are shortened to fit the model's limit.
+
+### Reading the results
+
+Each finding has a severity, a rule ID, the file and line, and a suggested fix:
+
+- **Error:** the creative is likely broken or cannot go live
+- **Warning:** should be fixed or deliberately accepted
+- **Info:** a suggestion
+
+The results are labeled by where they came from (code checks, variant test or AI review). The full-screen view adds an overview with counts per check and per file, and filters for severity, check, rule and file, plus a search over the messages.
 
 ---
 

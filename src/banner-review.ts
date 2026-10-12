@@ -35,11 +35,26 @@ export class BannerReviewService {
 
     return {
       findings: sortFindings([
-        ...lintBanner(files, assets),
+        ...lintBanner(files, assets, this.readSizes(workspacePath)),
         ...lintContent(this.readContent(workspacePath)),
       ]),
       filesReviewed: files.length,
     };
+  }
+
+  private readSizes(workspacePath: string): string[] {
+    const settingsPath = path.join(workspacePath, "settings", "settings.json");
+
+    try {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+
+      return (settings.dimensions ?? []).map(
+        (size: { width: number; height: number }) =>
+          `${size.width}x${size.height}`,
+      );
+    } catch {
+      return [];
+    }
   }
 
   private readContent(workspacePath: string): unknown {
@@ -96,7 +111,11 @@ export class BannerReviewService {
     onProgress(`Using ${model.name}`);
 
     const { files, assets } = this.load(workspacePath);
-    const lintFindings = lintBanner(files, assets);
+    const lintFindings = lintBanner(
+      files,
+      assets,
+      this.readSizes(workspacePath),
+    );
     onProgress(
       `Read ${files.length} files and ${assets.length} assets, ${lintFindings.length} found by the code checks`,
     );

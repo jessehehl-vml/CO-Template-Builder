@@ -452,6 +452,51 @@ select {
   white-space: nowrap;
 }
 
+.qa-overlay-toggle.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qa-overlay-toggle input:disabled {
+  cursor: not-allowed;
+}
+
+.qa-storyboard-missing {
+  margin-top: 12px;
+  margin-bottom: 24px;
+
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Matches the divider above the Storyboard title when frames share a row */
+.qa-frames[data-overlay-enabled="false"]
+  .qa-frame-row:has(.qa-frame-container + .qa-frame-container)
+  .qa-storyboard-missing {
+  padding-top: 8px;
+  margin-bottom: 0;
+  border-top: 1px solid #ddd;
+}
+
+.qa-frames[data-overlay-enabled="true"] .qa-storyboard-missing {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  right: 0;
+  z-index: 10;
+
+  margin: 0;
+  padding: 6px 8px;
+
+  background: rgba(220, 38, 38, 0.9);
+  color: #ffffff;
+  font-size: 11px;
+  text-align: center;
+
+  pointer-events: none;
+}
+
 .qa-overlay-opacity {
   display: flex;
   align-items: center;

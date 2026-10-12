@@ -8,8 +8,9 @@ Each rule has an ID, a severity (`error`, `warning` or `info`) and a description
 Reference the rule by its ID in every finding. Thresholds in square brackets are
 defaults: change them to match your ad specs.
 
-CLK-001, CLK-002, NET-001, ANI-001, ANI-002, CRE-001, PERF-001, JS-001, JS-002,
-JS-003 and CSS-003 are also checked by code (`src/banner-lint.ts`) for everyone.
+CLK-001, CLK-002, NET-001, ANI-001, ANI-002, ANI-003, CRE-001, PERF-001, JS-001,
+JS-002, JS-003, CSS-003, SEL-001, LIB-001 and DIM-001 are also checked by code
+(`src/banner-lint.ts`) for everyone.
 The AI review is told what that check already found and covers the rest. If you
 change a threshold for PERF-001, change it in `banner-lint.ts` too.
 
@@ -67,6 +68,36 @@ images that are not registered or registered too early. `Creative.addWait`
 accepts any number of images or jQuery collections, so
 `Creative.addWait($(".a"), $(".b"))` is valid when the `addWait` in Creative.js
 takes `...elements`; only report it if Creative.js accepts a single argument.
+Consecutive `Creative.addWait` calls are reported by the code check as info:
+they can be one call with several arguments.
+
+### ANI-003 (error) Timelines do not work in QA mode
+
+QA mode loads one iframe per frame and pauses `mainTimeline` at the label
+`frameN-preview`. That needs:
+
+- `const mainTimeline = gsap.timeline({ paused: true })`, played only once from
+  `initCreative`.
+- One `frameNTimeline` per frame (matching `Creative.frames`), each added to
+  `mainTimeline` with `mainTimeline.add(frameNTimeline)`.
+- `.addLabel("preview-ready")` in each frame timeline, once the frame is fully
+  shown. Exit animations such as a fade-out may come after it; do not report
+  those.
+- `mainTimeline.addLabel("frameN-preview", frameNStart + frameNTimeline.labels["preview-ready"])`
+  with `frameNStart` read from `mainTimeline.duration()` before the add.
+- `Creative.js` keeps `setupPreviewControls()` (handles `preview-pause`) and
+  `notifyReady()` (sends `creative-ready`).
+
+The code check covers the parts above that can be matched in the source. Also
+report, as **warnings** (not errors), animation that does not belong to a frame
+timeline and so is not paused by the seek: standalone `gsap.to/from/fromTo`
+calls that are not added to a frame timeline (including ones created inside
+`onComplete` callbacks), `setTimeout` / `gsap.delayedCall` driven animation, and
+code that kills, restarts or re-plays `mainTimeline` after `initCreative` has
+started it. Also report frame content that is only visible through a tween
+created outside its frame (for example text revealed by a loop or a separate
+timeline). Suggest adding the tween to the frame timeline at the time it would
+have started.
 
 ### ANI-002 (warning) Endless or very long animation
 
@@ -148,6 +179,39 @@ own `[Creative] initCreative` log is expected and must not be reported.
 
 Animations that loop or restart must check `userInteracted` / `userInteracting`
 so they do not fight the user's hover.
+
+### SEL-001 (warning) Selector matches nothing
+
+Checked by code: a class or id used in `$()`, `querySelector(All)`, `closest`,
+`find` or a GSAP target that is not in `index.html` and not created by the
+script. GSAP only logs a console warning for these. Do not report it.
+
+### LIB-001 (warning) Library problems
+
+Checked by code: jQuery or GSAP loaded twice, GSAP files in different versions,
+and a GSAP plugin (for example `SplitText`) used without being loaded. Do not
+report it.
+
+### DIM-001 (warning) Missing dimension stylesheet
+
+Checked by code: a selected size without `dimensions/WxH.css` when the banner
+has several sizes, and a dimension file for a size that is not selected. Do not
+report it.
+
+### DEAD-001 (info) Dead code
+
+Report code that can be removed: CSS rules whose class or id selectors are not
+in the HTML or created by the script, functions that are never called, and
+variables that are never read. Group related cases into one finding per file.
+Do not report template parts that are meant to be filled in later, such as the
+empty `createTheme`, or classes added by feed content.
+
+### DRY-001 (info) Repeated animation code
+
+Report the same tween chain or setup repeated across frames or elements (three
+or more times, or a long block twice) that a helper function such as
+`animateText` would replace. Name the repeated lines and suggest the helper.
+Do not report short one-line tweens that merely look alike.
 
 ## Do not report
 

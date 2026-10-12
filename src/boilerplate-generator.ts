@@ -380,34 +380,23 @@ export class BoilerplateGenerator {
     return Promise.all(
       elements.map((element) => {
         return new Promise((resolve) => {
-          const parent = element;
-          const child = parent.firstElementChild;
-
-          if (!child) {
-            resolve();
-            return;
-          }
-
-          const styles = window.getComputedStyle(parent);
+          const styles = window.getComputedStyle(element);
 
           let fontSize = parseFloat(styles.fontSize);
           const maxHeight = parseFloat(styles.maxHeight);
-          const parentWidth = parent.getBoundingClientRect().width;
+          const maxWidth = element.clientWidth;
 
           if (
             !Number.isFinite(fontSize) ||
             !Number.isFinite(maxHeight) ||
-            !parentWidth
+            !maxWidth
           ) {
             resolve();
             return;
           }
 
-          const fits = () => {
-            const rect = child.getBoundingClientRect();
-
-            return rect.height <= maxHeight && rect.width <= parentWidth;
-          };
+          const fits = () =>
+            element.scrollHeight <= maxHeight && element.scrollWidth <= maxWidth;
 
           const reduceFontSize = () => {
             if (fits() || fontSize <= minSize) {
@@ -416,7 +405,7 @@ export class BoilerplateGenerator {
             }
 
             fontSize -= 0.5;
-            parent.style.fontSize = \`\${fontSize}px\`;
+            element.style.fontSize = \`\${fontSize}px\`;
 
             requestAnimationFrame(reduceFontSize);
           };
@@ -505,23 +494,28 @@ ${Array.from({ length: frameCount }, (_, index) => {
       }
     }
 
-    return Array.from(placeholderMap.entries())
-      .map(([name, type]) => {
-        const selector = `.${name}`;
-        const contentReference = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-          ? `content?.${name}?.value`
-          : `content?.[${JSON.stringify(name)}]?.value`;
+    const imageSelectors: string[] = [];
 
-        if (type === "image") {
-          return [
-            `  $("${selector}").attr("src", ${contentReference});`,
-            `  Creative.addWait($("${selector}"));`,
-          ].join("\n");
-        }
+    const lines = Array.from(placeholderMap.entries()).map(([name, type]) => {
+      const selector = `.${name}`;
+      const contentReference = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+        ? `content?.${name}?.value`
+        : `content?.[${JSON.stringify(name)}]?.value`;
 
-        return `  $("${selector}").html(${contentReference});`;
-      })
-      .join("\n");
+      if (type === "image") {
+        imageSelectors.push(`$("${selector}")`);
+        return `  $("${selector}").attr("src", ${contentReference});`;
+      }
+
+      return `  $("${selector}").html(${contentReference});`;
+    });
+
+    // One call after all srcs are set; addWait accepts several elements.
+    if (imageSelectors.length > 0) {
+      lines.push(`  Creative.addWait(${imageSelectors.join(", ")});`);
+    }
+
+    return lines.join("\n");
   }
 
   private buildInteractionCode(message: BoilerplateMessage): string {

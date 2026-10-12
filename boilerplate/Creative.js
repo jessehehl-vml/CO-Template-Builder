@@ -29,6 +29,33 @@ window.Creative = {
     return new URLSearchParams(window.location.search).has("_lemonpiPreview");
   },
   frames: /* FRAME_COUNT */ 1,
+
+  timeline: null,
+
+  pause: function (label) {
+    // mainTimeline is a top-level const in script.js, visible here at call time.
+    const timeline =
+      this.timeline ??
+      (typeof mainTimeline !== "undefined" ? mainTimeline : null);
+
+    timeline?.seek(label, false).pause();
+  },
+
+  setupPreviewControls: function () {
+    if (!this.isPreview) return;
+
+    window.addEventListener("message", (event) => {
+      const message = event.data;
+      if (message?.type !== "preview-pause") return;
+      this.pause(`frame${message.frame}-preview`);
+    });
+  },
+
+  // Tells the QA preview the timeline is built so it can request a pause.
+  notifyReady: function () {
+    if (!this.isPreview) return;
+    window.parent.postMessage({ type: "creative-ready" }, "*");
+  },
   loadDimensionStyles: function () {
     if (!this.isPreview) return;
 
@@ -96,9 +123,10 @@ window.Creative = {
 
   start: function () {
     this.loadDimensionStyles();
+    this.setupPreviewControls();
 
     lemonpi.subscribe((content) => {
-      initCreative(content);
+      Promise.resolve(initCreative(content)).then(() => this.notifyReady());
     });
   },
 };

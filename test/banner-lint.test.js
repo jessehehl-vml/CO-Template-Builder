@@ -9,10 +9,21 @@ const boilerplate = path.resolve(__dirname, "..", "boilerplate");
 
 function readBoilerplate() {
   return ["index.html", "script.js", "Creative.js", "styles.css"].map(
-    (name) => ({
-      path: name,
-      content: fs.readFileSync(path.join(boilerplate, name), "utf8"),
-    }),
+    (name) => {
+      const content = fs.readFileSync(path.join(boilerplate, name), "utf8");
+
+      // Elements the tests' snippets select, so SEL-001 stays quiet.
+      return {
+        path: name,
+        content:
+          name === "index.html"
+            ? content.replace(
+                '<div id="creative_container"></div>',
+                '<div id="creative_container"><i class="a b logo lifestyle trail"></i></div>',
+              )
+            : content,
+      };
+    },
   );
 }
 
@@ -165,6 +176,128 @@ test("checks the template contract and animation order", () => {
   assert.ok(rulesOf(lintBanner(playsEarly, [])).includes("ANI-001"));
 });
 
+const frameCode = (n, animation = '.to(".a", { autoAlpha: 1 })') => `
+function createFrame${n}Animation() {
+  frame${n}Timeline
+    ${animation}
+    .addLabel("preview-ready");
+}`;
+
+const startCode = (
+  n,
+  label = ", frame" +
+    n +
+    "Start + frame" +
+    n +
+    'Timeline.labels["preview-ready"]',
+) => `
+  createFrame${n}Animation();
+  const frame${n}Start = mainTimeline.duration();
+  mainTimeline.add(frame${n}Timeline);
+  mainTimeline.addLabel("frame${n}-preview"${label});`;
+
+function generated({ frames = 1, frame = frameCode(1), start = startCode(1) }) {
+  return readBoilerplate().map((file) => {
+    if (file.path === "script.js") {
+      return {
+        ...file,
+        content: file.content
+          .replace(
+            "/* FRAME_TIMELINES */",
+            "const frame1Timeline = gsap.timeline();",
+          )
+          .replace(
+            "/* FRAME_ANIMATIONS */",
+            `${frame}\nfunction startAnimations() {${start}\n}`,
+          ),
+      };
+    }
+
+    return file.path === "Creative.js"
+      ? {
+          ...file,
+          content: file.content.replace("/* FRAME_COUNT */ 1", String(frames)),
+        }
+      : file;
+  });
+}
+
+test("accepts timelines set up for QA mode", () => {
+  assert.deepEqual(lintBanner(generated({}), []), []);
+});
+
+test("flags timelines that QA mode cannot pause", () => {
+  const messages = (files) =>
+    lintBanner(files, [])
+      .filter((finding) => finding.rule === "ANI-003")
+      .map((finding) => finding.message);
+
+  assert.match(
+    messages(generated({ start: startCode(1).replace("addLabel", "x") }))[0],
+    /frame1-preview.*never added/,
+  );
+  assert.match(
+    messages(
+      generated({
+        frame: frameCode(1).replace('.addLabel("preview-ready")', ""),
+      }),
+    )[0],
+    /no "preview-ready" label/,
+  );
+  assert.match(
+    messages(
+      generated({
+        start: startCode(1).replace("mainTimeline.add(frame1Timeline);", ""),
+      }),
+    )[0],
+    /never added to mainTimeline/,
+  );
+  assert.match(
+    messages(generated({ start: startCode(1, "") }))[0],
+    /has no position/,
+  );
+  assert.deepEqual(
+    messages(
+      generated({
+        frame: `
+function createFrame1Animation() {
+  frame1Timeline.to(".a", { autoAlpha: 1 }).addLabel("preview-ready").to(".a", { autoAlpha: 0 }, 5);
+}`,
+      }),
+    ),
+    [],
+  );
+  assert.match(messages(generated({ frames: 2 }))[0], /frame2-preview/);
+});
+
+test("flags a Creative.js without the QA preview controls", () => {
+  const files = readBoilerplate().map((file) =>
+    file.path === "Creative.js"
+      ? {
+          ...file,
+          content: file.content
+            .replaceAll("preview-pause", "x")
+            .replaceAll("creative-ready", "y"),
+        }
+      : file,
+  );
+
+  assert.deepEqual(
+    lintBanner(files, []).map((finding) => finding.rule),
+    ["ANI-003", "ANI-003"],
+  );
+});
+
+test("flags a script without mainTimeline", () => {
+  const files = readBoilerplate().map((file) =>
+    file.path === "script.js"
+      ? { ...file, content: file.content.replaceAll("mainTimeline", "tl") }
+      : file,
+  );
+
+  assert.ok(rulesOf(lintBanner(files, [])).includes("ANI-003"));
+});
+
 function withStyles(extra) {
   return readBoilerplate().map((file) =>
     file.path === "styles.css"
@@ -236,6 +369,107 @@ test("accepts an image registered with Creative.addWait after its src", () => {
   );
 
   assert.deepEqual(findings, []);
+});
+
+test("suggests combining consecutive Creative.addWait calls", () => {
+  const findings = lintBanner(
+    withScript(
+      [
+        '$(".a").attr("src", content.a.value);',
+        '$(".b").attr("src", content.b.value);',
+        'Creative.addWait($(".a"));',
+        'Creative.addWait($(".b"));',
+      ].join("\n"),
+    ),
+    [],
+  );
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].severity, "info");
+  assert.match(findings[0].suggestion, /addWait\(\$\("\.a"\), \$\("\.b"\)\)/);
+});
+
+test("flags a selector that matches nothing", () => {
+  const findings = lintBanner(
+    withScript(
+      [
+        '$("#creative_container .missing").hide();',
+        'gsap.to(".also-missing", { x: 1 });',
+        '$("<div class=\'made\'>").appendTo("#creative_container");',
+        '$(".made").hide();',
+        'const t = $(".frame" + 1);',
+      ].join("\n"),
+    ),
+    [],
+  ).filter((finding) => finding.rule === "SEL-001");
+
+  assert.deepEqual(
+    findings.map((finding) => finding.message.match(/uses (\S+),/)[1]),
+    [".missing", ".also-missing"],
+  );
+});
+
+function withIndex(change) {
+  return readBoilerplate().map((file) =>
+    file.path === "index.html"
+      ? { ...file, content: change(file.content) }
+      : file,
+  );
+}
+
+test("flags duplicate libraries, mixed GSAP versions and missing plugins", () => {
+  const files = withIndex((html) =>
+    html.replace(
+      '<script src="./Creative.js">',
+      '<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>\n<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>\n<script src="./Creative.js">',
+    ),
+  );
+  const messages = lintBanner(
+    withScript("const s = new SplitText('.x');", files),
+    [],
+  )
+    .filter((finding) => finding.rule === "LIB-001")
+    .map((finding) => finding.message);
+
+  assert.deepEqual(messages, [
+    "jQuery is loaded more than once.",
+    "GSAP files are loaded in different versions (3.13.0, 3.12.5).",
+    "SplitText is used in the script but no SplitText file is loaded in index.html.",
+  ]);
+});
+
+test("accepts a plugin that is loaded", () => {
+  const files = withIndex((html) =>
+    html.replace(
+      '<script src="./Creative.js">',
+      '<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/SplitText.min.js"></script>\n<script src="./Creative.js">',
+    ),
+  );
+
+  assert.deepEqual(
+    lintBanner(withScript("const s = new SplitText('.x');", files), []),
+    [],
+  );
+});
+
+test("checks dimension stylesheets against the selected sizes", () => {
+  const files = [
+    ...readBoilerplate(),
+    { path: "dimensions/300x250.css", content: ".a { color: red; }" },
+    { path: "dimensions/160x600.css", content: ".a { color: red; }" },
+  ];
+  const findings = lintBanner(files, [], ["300x250", "728x90"]).filter(
+    (finding) => finding.rule === "DIM-001",
+  );
+
+  assert.deepEqual(
+    findings.map((finding) => [finding.severity, finding.file]),
+    [
+      ["warning", "dimensions/728x90.css"],
+      ["info", "dimensions/160x600.css"],
+    ],
+  );
+  assert.deepEqual(lintBanner(readBoilerplate(), [], ["300x250"]), []);
 });
 
 test("flags an image registered before its src is set", () => {
