@@ -6,6 +6,7 @@ import {
   BROWSER_CHECK_CODE,
   GSAP_LATEST,
 } from "./addons";
+import { fontBlock } from "./font-links";
 
 type SelectedFont = {
   family: string;
@@ -357,12 +358,7 @@ export class BoilerplateGenerator {
     fonts: SelectedFont[],
     splitText?: boolean,
   ): string {
-    const fontLinks = fonts
-      .map(
-        ({ variant, fontUrl }) =>
-          `  <link rel="stylesheet" type="text/css" media="all" href="${fontUrl}?v=${variant}">`,
-      )
-      .join("\n");
+    const fontLinks = fonts.length > 0 ? fontBlock(fonts) : "";
 
     // SplitText must match the GSAP core version, so both move to the latest.
     const html = splitText

@@ -3,7 +3,11 @@ import React, { useEffect, useState } from "react";
 const vscode = acquireVsCodeApi();
 
 export default function App() {
-  const [hasProject, setHasProject] = useState(false);
+  // null until the extension answers; the first paint uses the state it embeds.
+  const [hasProject, setHasProject] = useState<boolean | null>(
+    (window as unknown as { __INITIAL_STATE__?: { hasProject?: boolean } })
+      .__INITIAL_STATE__?.hasProject ?? null,
+  );
   const [email, setEmail] = useState("");
 
   const [settingsOpen, setSettingsOpen] = useState(true);
@@ -40,7 +44,10 @@ export default function App() {
 
       if (message.type === "projectStateLoaded") {
         setHasProject(message.hasProject);
-        setEmail(message.authenticated ? (message.email ?? "") : "");
+
+        if ("authenticated" in message) {
+          setEmail(message.authenticated ? (message.email ?? "") : "");
+        }
       }
     };
 
@@ -65,7 +72,7 @@ export default function App() {
 
       <main className="landing">
         <div className="landing-content">
-          {hasProject ? (
+          {hasProject === null ? null : hasProject ? (
             <nav className="app-menu">
               <div className="menu-section">
                 <button

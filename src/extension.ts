@@ -10,6 +10,10 @@ import {
 import { ZipExportService } from "./zip-export";
 import { PreviewServer } from "./preview-server";
 import { BannerReviewService } from "./banner-review";
+import { updateFontLinks, updateFontVariables, type FontLink } from "./font-links";
+import { syncContentDimensions } from "./dimensions";
+import { renameInScript } from "./project-name";
+import { mergePlaceholders } from "./placeholders";
 import {
   applyAddOns,
   detectAddOns,
@@ -60,6 +64,8 @@ export function deactivate() {}
 class SidebarProvider implements vscode.WebviewViewProvider {
   private sidebarWebview: vscode.WebviewView | null = null;
   private settingsPanel: vscode.WebviewPanel | null = null;
+  // What the settings panel shows now, so a reloaded webview can restore it.
+  private settingsView: "export" | 1 | 2 | 3 | 4 | 5 = 1;
   private wizardPanel: vscode.WebviewPanel | null = null;
   private exportOnReady = false;
   constructor(
@@ -111,42 +117,44 @@ class SidebarProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getWebviewHtml(
       webviewView.webview,
       "index.html",
+      { hasProject: this.readHasProject() },
     );
   }
 
-  private async loadProjectState(webview: vscode.Webview): Promise<void> {
+  private readHasProject(): boolean {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    let hasProject = false;
 
-    if (workspaceFolder) {
-      const settingsPath = path.join(
-        workspaceFolder.uri.fsPath,
-        "settings",
-        "settings.json",
-      );
-
-      if (fs.existsSync(settingsPath)) {
-        try {
-          const content = fs.readFileSync(settingsPath, "utf8");
-          const settings = JSON.parse(content);
-
-          hasProject =
-            settings !== null &&
-            typeof settings === "object" &&
-            !Array.isArray(settings);
-        } catch {
-          hasProject = false;
-        }
-      }
+    if (!workspaceFolder) {
+      return false;
     }
 
-    const authState = await this.getAuthenticationState();
+    const settingsPath = path.join(
+      workspaceFolder.uri.fsPath,
+      "settings",
+      "settings.json",
+    );
 
+    try {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+
+      return (
+        settings !== null &&
+        typeof settings === "object" &&
+        !Array.isArray(settings)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async loadProjectState(webview: vscode.Webview): Promise<void> {
+    // The project is known from disk, so do not wait for the account request.
     webview.postMessage({
       type: "projectStateLoaded",
-      hasProject,
-      ...authState,
+      hasProject: this.readHasProject(),
     });
+
+    await this.sendAuthenticationState(webview);
   }
 
   private async selectFolder(webview: vscode.Webview): Promise<void> {
@@ -810,63 +818,16 @@ class SidebarProvider implements vscode.WebviewViewProvider {
         ? JSON.parse(fs.readFileSync(settingsPath, "utf8"))
         : {};
 
-      let updatedPlaceholders: Record<string, any> = {};
-
-      const incomingPlaceholders = settings.placeholders;
-
-      // The settings UI stores placeholders as an array:
-      if (Array.isArray(incomingPlaceholders)) {
-        updatedPlaceholders = Object.fromEntries(
-          incomingPlaceholders
-            .filter(
-              (placeholder: any) =>
-                placeholder?.name && typeof placeholder.name === "string",
-            )
-            .map((placeholder: any) => [
-              placeholder.name,
-              {
-                type: placeholder.type,
-              },
-            ]),
-        );
-      } else if (
-        incomingPlaceholders &&
-        typeof incomingPlaceholders === "object"
-      ) {
-        // Already in settings.json format.
-        updatedPlaceholders = {
-          ...(incomingPlaceholders as Record<string, any>),
-        };
-      }
-
-      // Add/update collection configuration.
-      if (
-        collectionMapping?.collection &&
-        Array.isArray(collectionMapping.fields)
-      ) {
-        updatedPlaceholders[collectionMapping.collection] = {
-          type: "collection",
-          intent: collectionMapping.intent ?? "product",
-          items_required: Number(collectionMapping.required ?? 1),
-          placeholders: Object.fromEntries(
-            collectionMapping.fields.map((field: any) => [
-              field.placeholder,
-              {
-                type: field.placeholderType,
-              },
-            ]),
-          ),
-        };
-      }
+      const updatedPlaceholders = mergePlaceholders(
+        existingSettings.placeholders,
+        settings.placeholders,
+        collectionMapping,
+      );
 
       const updatedSettings = {
         ...existingSettings,
         ...settings,
-        // Sections that do not edit placeholders must keep the saved ones.
-        placeholders:
-          settings.placeholders !== undefined || collectionMapping?.collection
-            ? updatedPlaceholders
-            : (existingSettings.placeholders ?? {}),
+        placeholders: updatedPlaceholders,
       };
 
       const addOnNotes = this.applyAddOnsToProject(
@@ -957,46 +918,100 @@ class SidebarProvider implements vscode.WebviewViewProvider {
         variants: updatedVariants,
       };
 
-      fs.writeFileSync(
-        contentPath,
-        JSON.stringify(updatedContent, null, 2),
-        "utf8",
-      );
+      // Only the Placeholders section edits content. Other sections would write back a stale copy.
+      if (settings.placeholders !== undefined) {
+        fs.writeFileSync(
+          contentPath,
+          JSON.stringify(updatedContent, null, 2),
+          "utf8",
+        );
+      }
       const indexPath = path.join(
         workspaceFolder.uri.fsPath,
         "src",
         "index.html",
       );
 
-      if (fs.existsSync(indexPath)) {
-        let html = fs.readFileSync(indexPath, "utf8");
+      const saveNotes: string[] = [];
 
-        const fontLinks = Array.isArray(settings.selectedFonts)
-          ? settings.selectedFonts
-              .map(
-                (font: { family: string; variant: string; fontUrl: string }) =>
-                  `  <link rel="stylesheet" type="text/css" media="all" href="${font.fontUrl}?v=${font.variant}">`,
-              )
-              .join("\n")
-          : "";
+      // The name is also in the header comment of script.js.
+      if (
+        typeof settings.projectName === "string" &&
+        typeof existingSettings.projectName === "string" &&
+        settings.projectName !== existingSettings.projectName
+      ) {
+        const scriptPath = path.join(
+          workspaceFolder.uri.fsPath,
+          "src",
+          "script.js",
+        );
 
-        const fontBlock = `<!-- CO-EXTENSION-FONTS:START -->
-${fontLinks}
-  <!-- CO-EXTENSION-FONTS:END -->`;
+        if (fs.existsSync(scriptPath)) {
+          const script = fs.readFileSync(scriptPath, "utf8");
+          const renamed = renameInScript(
+            script,
+            existingSettings.projectName,
+            settings.projectName,
+          );
 
-        const fontBlockRegex =
-          /<!-- CO-EXTENSION-FONTS:START -->[\s\S]*?<!-- CO-EXTENSION-FONTS:END -->/;
+          if (renamed !== script) {
+            fs.writeFileSync(scriptPath, renamed, "utf8");
+          }
+        }
+      }
 
-        if (fontBlockRegex.test(html)) {
-          html = html.replace(fontBlockRegex, fontBlock);
-        } else {
-          html = html.replace(/<\/head>/i, `  ${fontBlock}\n</head>`);
+      // New sizes need content in every variant, or the preview skips them.
+      if (Array.isArray(settings.dimensions) && fs.existsSync(contentPath)) {
+        const synced = syncContentDimensions(
+          JSON.parse(fs.readFileSync(contentPath, "utf8")),
+          settings.dimensions as { width: number; height: number }[],
+        );
+
+        if (synced.added > 0) {
+          fs.writeFileSync(
+            contentPath,
+            JSON.stringify(synced.content, null, 2),
+            "utf8",
+          );
+          saveNotes.push(
+            "New sizes got placeholder content copied from each variant's first size. Check them under Placeholders.",
+          );
+        }
+      }
+
+      // Only the Fonts section sends fonts. Other sections must leave fonts alone.
+      if (Array.isArray(settings.selectedFonts)) {
+        const fonts = settings.selectedFonts as FontLink[];
+        const stylesPath = path.join(
+          workspaceFolder.uri.fsPath,
+          "src",
+          "styles.css",
+        );
+
+        if (fs.existsSync(indexPath)) {
+          fs.writeFileSync(
+            indexPath,
+            updateFontLinks(
+              fs.readFileSync(indexPath, "utf8"),
+              fonts,
+              Array.isArray(existingSettings.selectedFonts)
+                ? existingSettings.selectedFonts
+                : [],
+            ),
+            "utf8",
+          );
         }
 
-        fs.writeFileSync(indexPath, html, "utf8");
+        if (fs.existsSync(stylesPath)) {
+          fs.writeFileSync(
+            stylesPath,
+            updateFontVariables(fs.readFileSync(stylesPath, "utf8"), fonts),
+            "utf8",
+          );
+        }
       }
       vscode.window.showInformationMessage(
-        ["Settings saved.", ...addOnNotes.changes].join(" "),
+        ["Settings saved.", ...addOnNotes.changes, ...saveNotes].join(" "),
       );
 
       addOnNotes.warnings.forEach((warning) =>
@@ -1095,15 +1110,18 @@ ${fontLinks}
       5: "Add-ons",
     };
 
+    this.settingsView = section;
+
     if (this.settingsPanel) {
       this.settingsPanel.title = titles[section] ?? "Settings";
+
+      // Reveal first: a hidden webview can miss the message.
+      this.settingsPanel.reveal(vscode.ViewColumn.One);
 
       this.settingsPanel.webview.postMessage({
         type: "openSettingsSection",
         section,
       });
-
-      this.settingsPanel.reveal(vscode.ViewColumn.One);
 
       return;
     }
@@ -1114,6 +1132,7 @@ ${fontLinks}
       vscode.ViewColumn.One,
       {
         enableScripts: true,
+        retainContextWhenHidden: true,
       },
     );
 
@@ -1149,8 +1168,9 @@ ${fontLinks}
           await this.loadAgencyData(panel, "agencyDataLoaded");
           return;
         case "settingsWebviewReady":
-          if (this.exportOnReady) {
+          if (this.exportOnReady || this.settingsView === "export") {
             this.exportOnReady = false;
+            this.settingsView = "export";
 
             panel.title = "Export to Creative Optimizations";
 
@@ -1158,7 +1178,7 @@ ${fontLinks}
           } else {
             panel.webview.postMessage({
               type: "openSettingsSection",
-              section,
+              section: this.settingsView,
             });
           }
           return;
@@ -1407,6 +1427,7 @@ ${fontLinks}
 
   private openExportPanel() {
     if (this.settingsPanel) {
+      this.settingsView = "export";
       this.settingsPanel.title = "Export to Creative Optimizations";
 
       this.settingsPanel.webview.postMessage({
@@ -1537,6 +1558,7 @@ ${fontLinks}
   private getWebviewHtml(
     webview: vscode.Webview,
     fileName: "index.html" | "wizard.html",
+    initialState?: { hasProject: boolean },
   ): string {
     const htmlPath = path.join(
       this.extensionUri.fsPath,
@@ -1554,6 +1576,15 @@ ${fontLinks}
       /(["'])(?:\.\/|\/)?assets\//g,
       `$1${webviewDistUri}/assets/`,
     );
+
+    // Lets the first paint show the right menu instead of waiting for a message.
+    if (initialState) {
+      html = html.replace(
+        "</head>",
+        () =>
+          `<script>window.__INITIAL_STATE__ = ${JSON.stringify(initialState)};</script>\n</head>`,
+      );
+    }
 
     return html;
   }

@@ -16,6 +16,10 @@ type DimensionsSectionProps = {
   >;
   selectedDimensions: string[];
   setSelectedDimensions: React.Dispatch<React.SetStateAction<string[]>>;
+  customDimensions: { width: string; height: string }[];
+  setCustomDimensions: React.Dispatch<
+    React.SetStateAction<{ width: string; height: string }[]>
+  >;
 };
 
 export default function DimensionsSection({
@@ -23,11 +27,9 @@ export default function DimensionsSection({
   setDimensionType,
   selectedDimensions,
   setSelectedDimensions,
+  customDimensions,
+  setCustomDimensions,
 }: DimensionsSectionProps) {
-  const [customDimensions, setCustomDimensions] = useState<
-    { width: string; height: string }[]
-  >([]);
-
   const [customDimensionAttempted, setCustomDimensionAttempted] = useState<
     Record<number, boolean>
   >({});

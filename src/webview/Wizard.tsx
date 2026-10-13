@@ -215,6 +215,33 @@ export default function Wizard() {
   );
   const [selectedDimensions, setSelectedDimensions] = useState<string[]>([]);
 
+  // Preset keys and filled-in custom keys as real sizes ("custom-0" becomes "300x250").
+  const resolvedSizes = [
+    ...new Set(
+      selectedDimensions.flatMap((size) => {
+        let width: number;
+        let height: number;
+
+        if (size.startsWith("custom")) {
+          const index =
+            size === "custom" ? 0 : Number(size.replace("custom-", ""));
+
+          width = Number(customDimensions[index]?.width);
+          height = Number(customDimensions[index]?.height);
+        } else {
+          [width, height] = size.split("x").map(Number);
+        }
+
+        return width > 0 && height > 0 ? [`${width}x${height}`] : [];
+      }),
+    ),
+  ];
+  const resolvedDimensions = resolvedSizes.map((size) => {
+    const [width, height] = size.split("x").map(Number);
+
+    return { width, height };
+  });
+
   // Placeholders
   const [parsedFeed, setParsedFeed] = useState<ParsedFeed | null>(null);
   const [isFeedMappingFinished, setIsFeedMappingFinished] = useState(false);
@@ -418,7 +445,7 @@ export default function Wizard() {
       advertiserId: selectedAdvertiser,
       folderId: selectedCOFolder,
       projectName: name.trim(),
-      dimensions: selectedDimensions,
+      dimensions: resolvedSizes,
     });
   }, [
     exportMode,
@@ -427,6 +454,7 @@ export default function Wizard() {
     selectedCOFolder,
     name,
     selectedDimensions,
+    customDimensions,
   ]);
   // Message Handler
   useEffect(() => {
@@ -626,7 +654,9 @@ export default function Wizard() {
           });
 
           setSelectedDimensions(restoredSelectedDimensions);
-          setSelectedExportDimensions(restoredSelectedDimensions);
+          setSelectedExportDimensions(
+            savedDimensions.map(({ width, height }) => `${width}x${height}`),
+          );
           setCustomDimensions(restoredCustomDimensions);
         }
 
@@ -848,8 +878,8 @@ export default function Wizard() {
 
         const currentDimensions =
           dimensionType === "single"
-            ? selectedDimensions.slice(0, 1)
-            : selectedDimensions;
+            ? resolvedDimensions.slice(0, 1)
+            : resolvedDimensions;
 
         return (
           dimensionType !== loadedSettings.adsetType ||
@@ -895,49 +925,14 @@ export default function Wizard() {
           projectName: name,
         };
 
-      case 2: {
-        const dimensions = selectedDimensions
-          .map((size) => {
-            // Preset dimension
-            if (!size.startsWith("custom")) {
-              const [width, height] = size.split("x").map(Number);
-
-              if (!Number.isFinite(width) || !Number.isFinite(height)) {
-                return null;
-              }
-
-              return { width, height };
-            }
-
-            // Custom dimension
-            const index =
-              size === "custom" ? 0 : Number(size.replace("custom-", ""));
-
-            const customDimension = customDimensions[index];
-
-            if (!customDimension) {
-              return null;
-            }
-
-            const width = Number(customDimension.width);
-            const height = Number(customDimension.height);
-
-            if (!Number.isFinite(width) || !Number.isFinite(height)) {
-              return null;
-            }
-
-            return { width, height };
-          })
-          .filter(
-            (dimension): dimension is { width: number; height: number } =>
-              dimension !== null,
-          );
-
+      case 2:
         return {
           adsetType: dimensionType,
-          dimensions,
+          dimensions:
+            dimensionType === "single"
+              ? resolvedDimensions.slice(0, 1)
+              : resolvedDimensions,
         };
-      }
 
       case 3:
         return {
@@ -1104,6 +1099,8 @@ export default function Wizard() {
                   setDimensionType={setDimensionType}
                   selectedDimensions={selectedDimensions}
                   setSelectedDimensions={setSelectedDimensions}
+                  customDimensions={customDimensions}
+                  setCustomDimensions={setCustomDimensions}
                 />
               )}
 
@@ -1111,7 +1108,7 @@ export default function Wizard() {
                 <PlaceholdersSection
                   vscode={vscode}
                   dimensionType={dimensionType}
-                  selectedDimensions={selectedDimensions}
+                  selectedDimensions={resolvedSizes}
                   selectedAgency={selectedAgency}
                   setSelectedAgency={setSelectedAgency}
                   selectedAdvertiser={selectedAdvertiser}
@@ -1172,7 +1169,7 @@ export default function Wizard() {
                 <CreateSection
                   name={name}
                   dimensionType={dimensionType}
-                  selectedDimensions={selectedDimensions}
+                  selectedDimensions={resolvedSizes}
                   selectedAdset={selectedAdset}
                   frameCount={frameCount}
                   setFrameCount={setFrameCount}
@@ -1209,6 +1206,8 @@ export default function Wizard() {
                   setDimensionType={setDimensionType}
                   selectedDimensions={selectedDimensions}
                   setSelectedDimensions={setSelectedDimensions}
+                  customDimensions={customDimensions}
+                  setCustomDimensions={setCustomDimensions}
                 />
               )}
 
@@ -1216,7 +1215,7 @@ export default function Wizard() {
                 <PlaceholdersSection
                   vscode={vscode}
                   dimensionType={dimensionType}
-                  selectedDimensions={selectedDimensions}
+                  selectedDimensions={resolvedSizes}
                   selectedAgency={selectedAgency}
                   setSelectedAgency={setSelectedAgency}
                   selectedAdvertiser={selectedAdvertiser}
@@ -1379,7 +1378,7 @@ export default function Wizard() {
                 <span>Sizes</span>
 
                 <div className="export-sizes">
-                  {selectedDimensions.map((size) => (
+                  {resolvedSizes.map((size) => (
                     <label key={size} className="export-size-option">
                       <input
                         type="checkbox"
@@ -1520,7 +1519,7 @@ export default function Wizard() {
             settingsMode={settingsMode}
             name={name}
             selectedFolder={selectedFolder}
-            selectedDimensions={selectedDimensions}
+            selectedDimensions={resolvedSizes}
             selectedAdsetId={selectedAdsetId}
             parsedFeed={parsedFeed}
             frameCount={frameCount}

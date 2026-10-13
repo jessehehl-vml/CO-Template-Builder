@@ -230,6 +230,145 @@ test("add-ons reports what it cannot change", () => {
   assert.ok(files.creative.length > 0);
 });
 
+test("font links are marked, replaced on update and never duplicated", () => {
+  const { updateFontLinks } = require("../dist/font-links.js");
+  const open = {
+    family: "Open Sans",
+    variant: "700",
+    fontUrl: "https://fonts.example/open-sans",
+  };
+  const inter = {
+    family: "Inter",
+    variant: "400",
+    fontUrl: "https://fonts.example/inter",
+  };
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+
+  createGenerator().generate(createMessage({ folder, selectedFonts: [open] }));
+
+  const index = fs.readFileSync(path.join(folder, "src", "index.html"), "utf8");
+  const count = (html, url) => html.split(url).length - 1;
+
+  assert.match(index, /CO-EXTENSION-FONTS:START/);
+  assert.equal(count(index, "fonts.example/open-sans"), 1);
+
+  const swapped = updateFontLinks(index, [inter], [open]);
+
+  assert.equal(count(swapped, "fonts.example/open-sans"), 0);
+  assert.equal(count(swapped, "fonts.example/inter"), 1);
+
+  const legacy =
+    '<head>\n    <link rel="stylesheet" type="text/css" media="all" href="https://fonts.example/open-sans?v=700">\n</head>';
+  const migrated = updateFontLinks(legacy, [open, inter], [open]);
+
+  assert.equal(count(migrated, "fonts.example/open-sans"), 1);
+  assert.equal(count(migrated, "fonts.example/inter"), 1);
+});
+
+test("saving other sections keeps the saved placeholders", () => {
+  const { mergePlaceholders } = require("../dist/placeholders.js");
+  const saved = {
+    headline: { type: "text" },
+    logo: { type: "image" },
+    products: {
+      type: "collection",
+      intent: "product",
+      items_required: 3,
+      placeholders: { name: { type: "text" } },
+    },
+  };
+  const mapping = {
+    collection: "products",
+    intent: "product",
+    required: "3",
+    fields: [{ placeholder: "name", placeholderType: "text" }],
+  };
+
+  assert.deepEqual(mergePlaceholders(saved, undefined, null), saved);
+  assert.deepEqual(mergePlaceholders(saved, undefined, mapping), saved);
+  assert.deepEqual(mergePlaceholders(undefined, undefined, null), {});
+
+  const edited = mergePlaceholders(
+    saved,
+    [{ name: "headline", type: "text" }],
+    mapping,
+  );
+
+  assert.deepEqual(Object.keys(edited), ["headline", "products"]);
+});
+
+test("font variables in styles.css follow the selected fonts", () => {
+  const { updateFontVariables } = require("../dist/font-links.js");
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const fonts = [
+    { family: "Open Sans", variant: "700", fontUrl: "https://f.example/a" },
+    { family: "Inter", variant: "400", fontUrl: "https://f.example/b" },
+  ];
+
+  createGenerator().generate(createMessage({ folder, selectedFonts: fonts }));
+
+  const css = fs.readFileSync(path.join(folder, "src", "styles.css"), "utf8");
+  const next = updateFontVariables(css, [fonts[1]]);
+
+  assert.match(next, /--font1: "Inter";/);
+  assert.doesNotMatch(next, /--font2|Open Sans/);
+  assert.equal(next.length < css.length, true);
+
+  const added = updateFontVariables(":root {\n  --x: 1;\n}", fonts);
+
+  assert.match(added, /--font1: "Open Sans";\n  --font2: "Inter";/);
+  assert.equal(updateFontVariables("body {}", fonts), "body {}");
+});
+
+test("new sizes get content copied from the first size of each variant", () => {
+  const { syncContentDimensions } = require("../dist/dimensions.js");
+  const content = {
+    variants: [
+      {
+        contentId: "a",
+        dimensions: [
+          {
+            width: 300,
+            height: 250,
+            placeholders: [{ name: "headline", type: "text", value: "Hi" }],
+          },
+        ],
+      },
+      { contentId: "empty", dimensions: [] },
+    ],
+  };
+  const sizes = [
+    { width: 300, height: 250 },
+    { width: 728, height: 90 },
+  ];
+  const { content: synced, added } = syncContentDimensions(content, sizes);
+
+  assert.equal(added, 1);
+  assert.deepEqual(
+    synced.variants[0].dimensions.map((d) => `${d.width}x${d.height}`),
+    ["300x250", "728x90"],
+  );
+  assert.equal(synced.variants[0].dimensions[1].placeholders[0].value, "Hi");
+  assert.equal(synced.variants[1].dimensions.length, 0);
+  assert.equal(content.variants[0].dimensions.length, 1);
+  assert.equal(syncContentDimensions(synced, sizes).added, 0);
+});
+
+test("renaming the project updates the script.js header", () => {
+  const { renameInScript } = require("../dist/project-name.js");
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+
+  createGenerator().generate(createMessage({ folder, name: "Old Name" }));
+
+  const script = readGeneratedFile(folder, "script.js");
+  const renamed = renameInScript(script, "Old Name", "New Name");
+
+  assert.match(renamed, /^\/\*\*\n \* New Name - 300x250\n/);
+  assert.equal(renamed.slice(renamed.indexOf("@Owner")), script.slice(script.indexOf("@Owner")));
+  assert.equal(renameInScript(script, "Other Name", "New Name"), script);
+  assert.equal(renameInScript("const a = 1;", "Old Name", "New Name"), "const a = 1;");
+});
+
 test("generate accepts positive whole frame counts", () => {
   const { folder } = createProject({ frames: 1 });
 

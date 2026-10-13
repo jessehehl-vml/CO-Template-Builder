@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.9
+
+### Changed
+
+- Saving the **Dimensions** page now gives every variant content for each new size, copied from its first size, so the preview no longer skips new sizes. Check the copied content under Placeholders.
+- Saving the **Fonts** page now also updates the `--fontN` variables in `src/styles.css`.
+- Renaming the project in **Adset details** now updates the name in the `script.js` header comment.
+- Fonts chosen in the wizard are written to `index.html` inside the managed font block from the start.
+- The settings panel stays loaded while hidden, so unsaved edits survive switching tabs.
+
+### Fixed
+
+- The sidebar no longer flashes "Create new template" before showing the menu of an existing project. The project state is read from disk and embedded in the first paint, instead of waiting for the account request.
+- The settings page now shows the section you picked after switching to another tab and back.
+- Font links in `index.html` were sometimes removed. Saving a page other than Fonts rewrote the font block as empty.
+- `placeholders` in `settings.json` could be emptied by saving another page, including when a product collection was mapped.
+- Saving any page rewrote `content.json` from a possibly stale copy. It is now only written when saving Placeholders.
+- Custom sizes were lost or saved with the wrong values, and could not be used when creating a project. The Dimensions page and the wizard now share one copy, and everything downstream receives real sizes such as `300x250`.
+- The Dimensions Save button was always enabled.
+- A logged-in email was cleared when the project state updated, for example right after creating a project.
+
 ## 0.0.8
 
 ### Fixed
