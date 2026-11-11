@@ -151,6 +151,31 @@ test("generate leaves SplitText out when it is disabled", () => {
   assert.doesNotMatch(index, /\n\s*\n\s*<script src="\.\/Creative\.js"/);
 });
 
+test("generate adds optional DrawSVG and MotionPath plugins", () => {
+  const { folder } = createProject({
+    drawSVGPlugin: true,
+    motionPathPlugin: true,
+  });
+  const index = readGeneratedFile(folder, "index.html");
+
+  assert.match(
+    index,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.15\/dist\/DrawSVGPlugin\.min\.js/,
+  );
+  assert.match(
+    index,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.15\/dist\/MotionPathPlugin\.min\.js/,
+  );
+  assert.match(index, /gsap\/3\.15\.0\/gsap\.min\.js/);
+});
+
+test("generate omits optional DrawSVG and MotionPath plugins by default", () => {
+  const { folder } = createProject();
+  const index = readGeneratedFile(folder, "index.html");
+
+  assert.doesNotMatch(index, /DrawSVGPlugin|MotionPathPlugin/);
+});
+
 function readProjectFiles(folder) {
   return {
     creative: readGeneratedFile(folder, "Creative.js"),
@@ -163,12 +188,20 @@ test("add-ons can be added to and removed from an existing project", () => {
   const { applyAddOns, detectAddOns } = require("../dist/addons.js");
   const { folder } = createProject();
   const original = readProjectFiles(folder);
-  const all = { autoScaleFonts: true, browserCheck: true, splitText: true };
+  const all = {
+    autoScaleFonts: true,
+    browserCheck: true,
+    splitText: true,
+    drawSVGPlugin: true,
+    motionPathPlugin: true,
+  };
 
   assert.deepEqual(detectAddOns(original), {
     autoScaleFonts: false,
     browserCheck: false,
     splitText: false,
+    drawSVGPlugin: false,
+    motionPathPlugin: false,
   });
 
   const added = applyAddOns(original, all);
@@ -181,12 +214,16 @@ test("add-ons can be added to and removed from an existing project", () => {
   );
   assert.match(added.files.index, /gsap\/3\.15\.0\/gsap\.min\.js/);
   assert.match(added.files.index, /gsap\/3\.15\.0\/SplitText\.min\.js/);
+  assert.match(added.files.index, /DrawSVGPlugin\.min\.js/);
+  assert.match(added.files.index, /MotionPathPlugin\.min\.js/);
   assert.doesNotThrow(() => new Function(added.files.creative));
 
   const removed = applyAddOns(added.files, {
     autoScaleFonts: false,
     browserCheck: false,
     splitText: false,
+    drawSVGPlugin: false,
+    motionPathPlugin: false,
   });
 
   assert.equal(removed.files.creative, original.creative);
@@ -203,12 +240,16 @@ test("add-ons detects what a generated project already has", () => {
     autoScaleFonts: true,
     browserCheck: true,
     splitText: true,
+    drawSVGPlugin: true,
+    motionPathPlugin: true,
   });
 
   assert.deepEqual(detectAddOns(readProjectFiles(folder)), {
     autoScaleFonts: true,
     browserCheck: true,
     splitText: true,
+    drawSVGPlugin: true,
+    motionPathPlugin: true,
   });
 });
 
@@ -222,11 +263,17 @@ test("add-ons reports what it cannot change", () => {
       script: "// no initCreative here",
       index: "<html></html>",
     },
-    { autoScaleFonts: true, browserCheck: true, splitText: true },
+    {
+      autoScaleFonts: true,
+      browserCheck: true,
+      splitText: true,
+      drawSVGPlugin: true,
+      motionPathPlugin: true,
+    },
   );
 
   assert.equal(result.changes.length, 0);
-  assert.equal(result.warnings.length, 3);
+  assert.equal(result.warnings.length, 5);
   assert.ok(files.creative.length > 0);
 });
 
@@ -640,6 +687,8 @@ test("generate writes settings metadata for the project and selections", () => {
     autoScaleFonts: false,
     browserCheck: false,
     splitText: false,
+    drawSVGPlugin: false,
+    motionPathPlugin: false,
     agency: { id: 4, name: "Agency Inc" },
     advertiser: { id: 5, name: "Advertiser Corp" },
     adset: { id: 6, name: "Spring Launch" },

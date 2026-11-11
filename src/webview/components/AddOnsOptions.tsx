@@ -5,6 +5,10 @@ type AddOnsOptionsProps = {
   setBrowserCheck: React.Dispatch<React.SetStateAction<boolean>>;
   splitText: boolean;
   setSplitText: React.Dispatch<React.SetStateAction<boolean>>;
+  drawSVGPlugin?: boolean;
+  setDrawSVGPlugin?: React.Dispatch<React.SetStateAction<boolean>>;
+  motionPathPlugin?: boolean;
+  setMotionPathPlugin?: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
 export default function AddOnsOptions({
@@ -14,6 +18,10 @@ export default function AddOnsOptions({
   setBrowserCheck,
   splitText,
   setSplitText,
+  drawSVGPlugin,
+  setDrawSVGPlugin,
+  motionPathPlugin,
+  setMotionPathPlugin,
 }: AddOnsOptionsProps) {
   const options = [
     {
@@ -36,6 +44,22 @@ export default function AddOnsOptions({
       checked: splitText,
       toggle: () => setSplitText((current) => !current),
     },
+    ...(setDrawSVGPlugin
+      ? [{
+          label: "DrawSVGPlugin",
+          description: "Loads GSAP's DrawSVGPlugin in index.html.",
+          checked: Boolean(drawSVGPlugin),
+          toggle: () => setDrawSVGPlugin((current) => !current),
+        }]
+      : []),
+    ...(setMotionPathPlugin
+      ? [{
+          label: "MotionPathPlugin",
+          description: "Loads GSAP's MotionPathPlugin in index.html.",
+          checked: Boolean(motionPathPlugin),
+          toggle: () => setMotionPathPlugin((current) => !current),
+        }]
+      : []),
   ];
 
   return (

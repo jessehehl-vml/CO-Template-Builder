@@ -7,6 +7,10 @@ type AddOnsSectionProps = {
   setBrowserCheck: React.Dispatch<React.SetStateAction<boolean>>;
   splitText: boolean;
   setSplitText: React.Dispatch<React.SetStateAction<boolean>>;
+  drawSVGPlugin: boolean;
+  setDrawSVGPlugin: React.Dispatch<React.SetStateAction<boolean>>;
+  motionPathPlugin: boolean;
+  setMotionPathPlugin: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
 export default function AddOnsSection(props: AddOnsSectionProps) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.10
+
+### Added
+
+- **DrawSVGPlugin** and **MotionPathPlugin** options in boilerplate creation and the existing-project Add-ons menu.
+
 ## 0.0.9
 
 ### Changed

@@ -1054,7 +1054,13 @@ class SidebarProvider implements vscode.WebviewViewProvider {
     settings: Record<string, unknown>,
   ): { changes: string[]; warnings: string[] } {
     const none = { changes: [], warnings: [] };
-    const keys = ["autoScaleFonts", "browserCheck", "splitText"];
+    const keys = [
+      "autoScaleFonts",
+      "browserCheck",
+      "splitText",
+      "drawSVGPlugin",
+      "motionPathPlugin",
+    ];
 
     if (!keys.some((key) => key in settings)) {
       return none;

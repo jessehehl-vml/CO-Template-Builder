@@ -5,6 +5,8 @@ export type AddOns = {
   autoScaleFonts: boolean;
   browserCheck: boolean;
   splitText: boolean;
+  drawSVGPlugin: boolean;
+  motionPathPlugin: boolean;
 };
 
 export type ProjectFiles = {
@@ -99,6 +101,8 @@ export const BROWSER_CHECK_CODE = `check: (() => {
 const AUTO_SCALE_PROPERTY = /^[ \t]*autoScaleFont\s*:\s*function\b/m;
 const BROWSER_CHECK_PROPERTY = /^[ \t]*check\s*:\s*\(\(\)\s*=>/m;
 const SPLIT_TEXT_TAG = /<script\b[^>]*SplitText[^>]*>\s*<\/script>/i;
+const DRAW_SVG_TAG = /<script\b[^>]*DrawSVGPlugin[^>]*>\s*<\/script>/i;
+const MOTION_PATH_TAG = /<script\b[^>]*MotionPathPlugin[^>]*>\s*<\/script>/i;
 const GSAP_CORE_TAG =
   /<script\b[^>]*\bsrc\s*=\s*["']([^"']*[/]gsap(?:\.min)?\.js[^"']*)["'][^>]*>\s*<\/script>/i;
 const AUTO_SCALE_CALL =
@@ -114,6 +118,8 @@ export function detectAddOns(files: Partial<ProjectFiles>): Partial<AddOns> {
 
   if (files.index !== undefined) {
     detected.splitText = SPLIT_TEXT_TAG.test(files.index);
+    detected.drawSVGPlugin = DRAW_SVG_TAG.test(files.index);
+    detected.motionPathPlugin = MOTION_PATH_TAG.test(files.index);
   }
 
   return detected;
@@ -164,6 +170,49 @@ function addToCreative(creative: string, code: string): string | null {
   const at = opening.index + opening[0].length;
 
   return `${creative.slice(0, at)}  ${code}\n${creative.slice(at)}`;
+}
+
+function addGsapPlugin(index: string, name: string, tag: string) {
+  const core = GSAP_CORE_TAG.exec(index);
+
+  if (!core) {
+    return {
+      index,
+      warning: `${name} was not added: index.html has no GSAP script tag to add it after.`,
+    };
+  }
+
+  const onCdnjs = /cdnjs\.cloudflare\.com\/ajax\/libs\/gsap\//.test(core[1]);
+  const onJsdelivr = /cdn\.jsdelivr\.net\/npm\/gsap@/.test(core[1]);
+  const coreTag = onCdnjs
+    ? core[0].replace(/gsap\/\d+\.\d+\.\d+\//, `gsap/${GSAP_LATEST}/`)
+    : onJsdelivr
+      ? core[0].replace(
+          /gsap@[^/]+\/dist\//,
+          `gsap@${GSAP_LATEST.replace(/\.0$/, "")}/dist/`,
+        )
+      : core[0];
+  const indent = /([ \t]*)$/.exec(index.slice(0, core.index))?.[1] ?? "";
+
+  return {
+    index:
+      index.slice(0, core.index) +
+      `${coreTag}\n${indent}${tag}` +
+      index.slice(core.index + core[0].length),
+    warning:
+      onCdnjs || onJsdelivr
+        ? undefined
+        : `GSAP is not loaded from a recognized CDN, so check that it is version ${GSAP_LATEST} like ${name}.`,
+  };
+}
+
+function removeScriptTag(index: string, name: string): string {
+  const pattern = new RegExp(
+    `^[ \\t]*<script\\b[^>]*${name}[^>]*>\\s*<\\/script>[ \\t]*\\r?\\n?`,
+    "im",
+  );
+
+  return index.replace(pattern, "");
 }
 
 export type AddOnResult = {
@@ -290,6 +339,44 @@ export function applyAddOns(files: ProjectFiles, wanted: AddOns): AddOnResult {
       }
 
       changes.push("Removed SplitText");
+    }
+  }
+
+  const gsapPlugins = [
+    {
+      key: "drawSVGPlugin",
+      name: "DrawSVGPlugin",
+      tag: '<script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/DrawSVGPlugin.min.js"></script>',
+      pattern: DRAW_SVG_TAG,
+    },
+    {
+      key: "motionPathPlugin",
+      name: "MotionPathPlugin",
+      tag: '<script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/MotionPathPlugin.min.js"></script>',
+      pattern: MOTION_PATH_TAG,
+    },
+  ] as const;
+
+  for (const plugin of gsapPlugins) {
+    if (wanted[plugin.key] === present[plugin.key]) {
+      continue;
+    }
+
+    if (wanted[plugin.key]) {
+      const result = addGsapPlugin(index, plugin.name, plugin.tag);
+      const added = result.index !== index;
+      index = result.index;
+
+      if (added) {
+        changes.push(`Added ${plugin.name}`);
+      }
+
+      if (result.warning) {
+        warnings.push(result.warning);
+      }
+    } else {
+      index = removeScriptTag(index, plugin.name);
+      changes.push(`Removed ${plugin.name}`);
     }
   }
 

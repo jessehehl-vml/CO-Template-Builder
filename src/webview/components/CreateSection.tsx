@@ -15,6 +15,10 @@ type CreateSectionProps = {
   setBrowserCheck: React.Dispatch<React.SetStateAction<boolean>>;
   splitText: boolean;
   setSplitText: React.Dispatch<React.SetStateAction<boolean>>;
+  drawSVGPlugin: boolean;
+  setDrawSVGPlugin: React.Dispatch<React.SetStateAction<boolean>>;
+  motionPathPlugin: boolean;
+  setMotionPathPlugin: React.Dispatch<React.SetStateAction<boolean>>;
   onExport: () => void;
 };
 export default function CreateSection({
@@ -32,6 +36,10 @@ export default function CreateSection({
   setBrowserCheck,
   splitText,
   setSplitText,
+  drawSVGPlugin,
+  setDrawSVGPlugin,
+  motionPathPlugin,
+  setMotionPathPlugin,
   onExport,
 }: CreateSectionProps) {
   return (
@@ -106,6 +114,10 @@ export default function CreateSection({
         setBrowserCheck={setBrowserCheck}
         splitText={splitText}
         setSplitText={setSplitText}
+        drawSVGPlugin={drawSVGPlugin}
+        setDrawSVGPlugin={setDrawSVGPlugin}
+        motionPathPlugin={motionPathPlugin}
+        setMotionPathPlugin={setMotionPathPlugin}
       />
     </section>
   );

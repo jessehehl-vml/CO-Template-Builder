@@ -90,6 +90,8 @@ type WizardFooterProps = {
   autoScaleFonts: boolean;
   browserCheck: boolean;
   splitText: boolean;
+  drawSVGPlugin: boolean;
+  motionPathPlugin: boolean;
   name: string;
   selectedFolder: string | null;
   userName: string | null;
@@ -136,6 +138,8 @@ export default function WizardFooter({
   autoScaleFonts,
   browserCheck,
   splitText,
+  drawSVGPlugin,
+  motionPathPlugin,
   step,
   setStep,
   settingsMode,
@@ -224,6 +228,8 @@ export default function WizardFooter({
               autoScaleFonts,
               browserCheck,
               splitText,
+              drawSVGPlugin,
+              motionPathPlugin,
               selectedAgency: selectedAgency
                 ? (agencies.find((agency) => agency.id === selectedAgency) ??
                   null)

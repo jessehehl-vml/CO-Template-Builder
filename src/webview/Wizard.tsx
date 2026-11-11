@@ -365,6 +365,8 @@ export default function Wizard() {
   const [autoScaleFonts, setAutoScaleFonts] = useState(false);
   const [browserCheck, setBrowserCheck] = useState(false);
   const [splitText, setSplitText] = useState(false);
+  const [drawSVGPlugin, setDrawSVGPlugin] = useState(false);
+  const [motionPathPlugin, setMotionPathPlugin] = useState(false);
 
   // Export to CO
   const [exportMode, setExportMode] = useState(
@@ -909,7 +911,9 @@ export default function Wizard() {
         return (
           autoScaleFonts !== Boolean(loadedSettings.autoScaleFonts) ||
           browserCheck !== Boolean(loadedSettings.browserCheck) ||
-          splitText !== Boolean(loadedSettings.splitText)
+          splitText !== Boolean(loadedSettings.splitText) ||
+          drawSVGPlugin !== Boolean(loadedSettings.drawSVGPlugin) ||
+          motionPathPlugin !== Boolean(loadedSettings.motionPathPlugin)
         );
 
       default:
@@ -966,7 +970,13 @@ export default function Wizard() {
         };
 
       case 5:
-        return { autoScaleFonts, browserCheck, splitText };
+        return {
+          autoScaleFonts,
+          browserCheck,
+          splitText,
+          drawSVGPlugin,
+          motionPathPlugin,
+        };
 
       default:
         return {};
@@ -981,6 +991,8 @@ export default function Wizard() {
     setAutoScaleFonts(Boolean(loadedSettings.autoScaleFonts));
     setBrowserCheck(Boolean(loadedSettings.browserCheck));
     setSplitText(Boolean(loadedSettings.splitText));
+    setDrawSVGPlugin(Boolean(loadedSettings.drawSVGPlugin));
+    setMotionPathPlugin(Boolean(loadedSettings.motionPathPlugin));
   }, [settingsMode, settingsLoaded, loadedSettings]);
 
   // Selected adset
@@ -1181,6 +1193,10 @@ export default function Wizard() {
                   setBrowserCheck={setBrowserCheck}
                   splitText={splitText}
                   setSplitText={setSplitText}
+                  drawSVGPlugin={drawSVGPlugin}
+                  setDrawSVGPlugin={setDrawSVGPlugin}
+                  motionPathPlugin={motionPathPlugin}
+                  setMotionPathPlugin={setMotionPathPlugin}
                   onExport={() => setExportMode(true)}
                 />
               )}
@@ -1280,6 +1296,10 @@ export default function Wizard() {
                   setBrowserCheck={setBrowserCheck}
                   splitText={splitText}
                   setSplitText={setSplitText}
+                  drawSVGPlugin={drawSVGPlugin}
+                  setDrawSVGPlugin={setDrawSVGPlugin}
+                  motionPathPlugin={motionPathPlugin}
+                  setMotionPathPlugin={setMotionPathPlugin}
                 />
               )}
             </>
@@ -1545,6 +1565,8 @@ export default function Wizard() {
             autoScaleFonts={autoScaleFonts}
             browserCheck={browserCheck}
             splitText={splitText}
+            drawSVGPlugin={drawSVGPlugin}
+            motionPathPlugin={motionPathPlugin}
           />
         )}
       </div>

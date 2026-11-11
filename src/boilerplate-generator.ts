@@ -64,6 +64,8 @@ export type BoilerplateMessage = {
   autoScaleFonts?: boolean;
   browserCheck?: boolean;
   splitText?: boolean;
+  drawSVGPlugin?: boolean;
+  motionPathPlugin?: boolean;
   selectedAgency?: SettingsSelection | null;
   selectedAdvertiser?: SettingsSelection | null;
   selectedAdset?: SettingsSelection | null;
@@ -118,6 +120,8 @@ export class BoilerplateGenerator {
       autoScaleFonts: Boolean(message.autoScaleFonts),
       browserCheck: Boolean(message.browserCheck),
       splitText: Boolean(message.splitText),
+      drawSVGPlugin: Boolean(message.drawSVGPlugin),
+      motionPathPlugin: Boolean(message.motionPathPlugin),
     };
 
     this.addSelection(settings, "agency", message.selectedAgency);
@@ -319,6 +323,8 @@ export class BoilerplateGenerator {
         generator,
         message.selectedFonts,
         message.splitText,
+        message.drawSVGPlugin,
+        message.motionPathPlugin,
       ),
       script,
       styles: this.buildStyles(templates.styles, message.selectedFonts),
@@ -357,22 +363,37 @@ export class BoilerplateGenerator {
     generator: string,
     fonts: SelectedFont[],
     splitText?: boolean,
+    drawSVGPlugin?: boolean,
+    motionPathPlugin?: boolean,
   ): string {
     const fontLinks = fonts.length > 0 ? fontBlock(fonts) : "";
+    const gsapPlugins = [
+      splitText
+        ? `<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/${GSAP_LATEST}/SplitText.min.js"></script>`
+        : "",
+      drawSVGPlugin
+        ? '<script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/DrawSVGPlugin.min.js"></script>'
+        : "",
+      motionPathPlugin
+        ? '<script src="https://cdn.jsdelivr.net/npm/gsap@3.15/dist/MotionPathPlugin.min.js"></script>'
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n    ");
 
-    // SplitText must match the GSAP core version, so both move to the latest.
-    const html = splitText
-      ? template
-          .replace("gsap/3.13.0/gsap.min.js", `gsap/${GSAP_LATEST}/gsap.min.js`)
-          .replace(
-            "{{SPLIT_TEXT}}",
-            `<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/${GSAP_LATEST}/SplitText.min.js"></script>`,
-          )
-      : template.replace(/\n[ \t]*\{\{SPLIT_TEXT\}\}/, "");
+    const hasGsapPlugins = splitText || drawSVGPlugin || motionPathPlugin;
+    const html = hasGsapPlugins
+      ? template.replace(
+          "gsap/3.13.0/gsap.min.js",
+          `gsap/${GSAP_LATEST}/gsap.min.js`,
+        )
+      : template;
 
     return html
       .replaceAll("{{GENERATOR}}", generator)
-      .replace("{{FONT_LINKS}}", fontLinks);
+      .replace("{{FONT_LINKS}}", fontLinks)
+      .replace("{{SPLIT_TEXT}}", gsapPlugins)
+      .replace(/\n[ \t]*\{\{SPLIT_TEXT\}\}/, "");
   }
 
   private buildStyles(template: string, fonts: SelectedFont[]): string {
