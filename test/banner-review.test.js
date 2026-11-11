@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const {
   buildFilesMessage,
@@ -105,4 +106,72 @@ test("prompts carry the rules, numbered lines and the asset inventory", () => {
   assert.match(instructions, /CLK-001/);
   assert.match(message, /1\| a\n2\| b/);
   assert.match(message, /logo\.png: 2048 bytes/);
+});
+
+test("live click check detects native pointer handlers with mouse coordinates", async () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../preview/preview.js"),
+    "utf8",
+  );
+  const start = source.indexOf("const CLICK_EVENT_TYPES =");
+  const end = source.indexOf("// GSAP animations still playing", start);
+  const context = vm.createContext({ describeElement: () => "banner" });
+  vm.runInContext(source.slice(start, end), context);
+
+  class SyntheticEvent {
+    constructor(type, options) {
+      this.type = type;
+      Object.assign(this, options);
+    }
+  }
+
+  const listeners = new Map();
+  const events = [];
+  let pointerDown = false;
+  let working = true;
+  let placeholder = "clickUrl";
+  const element = {
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 300, bottom: 250 }),
+    dispatchEvent(event) {
+      events.push(event);
+      if (event.type === "pointerdown") {
+        pointerDown = event.buttons === 1;
+      }
+      if (
+        working && pointerDown && event.type === "pointerup" &&
+        event.clientX === 150 && event.clientY === 125 &&
+        event.pointerType === "mouse"
+      ) {
+        listeners.get("lemonpi.interaction/click")({
+          detail: { placeholder },
+        });
+      }
+    },
+  };
+  const win = {
+    document: { body: element, elementFromPoint: () => element },
+    innerWidth: 300,
+    innerHeight: 250,
+    Event: SyntheticEvent,
+    MouseEvent: SyntheticEvent,
+    PointerEvent: SyntheticEvent,
+    addEventListener: (type, listener) => listeners.set(type, listener),
+  };
+  const content = { clickUrl: { type: "click", value: "https://example.com" } };
+
+  const issues = await context.testClickOuts({ contentWindow: win }, content);
+  assert.equal(issues.length, 0);
+  assert.deepEqual(events.map((event) => event.type), [
+    "pointerdown", "mousedown", "pointerup", "mouseup", "click",
+  ]);
+
+  placeholder = content.clickUrl.value;
+  const invalid = await context.testClickOuts({ contentWindow: win }, content);
+  assert.equal(invalid.length, 1);
+  assert.match(invalid[0].message, /passes the click URL/);
+
+  working = false;
+  const failures = await context.testClickOuts({ contentWindow: win }, content);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].key, "none");
 });

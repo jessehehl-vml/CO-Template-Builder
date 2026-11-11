@@ -19,7 +19,7 @@ async function initCreative(content) {
 
   setContent(content);
   createTheme(content);
-  createInteraction();
+  createInteraction(content);
 
   await Creative.awaitAll();
   /* AUTO_SCALE_FONTS */

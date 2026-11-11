@@ -1809,15 +1809,30 @@ function findClickOutTargets(win) {
 
 // Native events, so errors in handlers are reported to the page instead of thrown here.
 function fireClick(win, el, types) {
+  const rect = el.getBoundingClientRect();
+  const options = {
+    bubbles: true,
+    cancelable: true,
+    view: win,
+    clientX: (Math.max(0, rect.left) + Math.min(win.innerWidth, rect.right)) / 2,
+    clientY: (Math.max(0, rect.top) + Math.min(win.innerHeight, rect.bottom)) / 2,
+    button: 0,
+  };
+
   types.forEach((type) => {
+    const pressed = type === "mousedown" || type === "pointerdown";
     const event =
-      type === "click"
-        ? new win.MouseEvent("click", {
-            bubbles: true,
-            cancelable: true,
-            view: win,
+      type.startsWith("pointer") && win.PointerEvent
+        ? new win.PointerEvent(type, {
+            ...options,
+            buttons: pressed ? 1 : 0,
+            pointerId: 1,
+            pointerType: "mouse",
+            isPrimary: true,
           })
-        : new win.Event(type, { bubbles: true, cancelable: true });
+        : ["click", "mousedown", "mouseup"].includes(type)
+          ? new win.MouseEvent(type, { ...options, buttons: pressed ? 1 : 0 })
+          : new win.Event(type, { bubbles: true, cancelable: true });
 
     el.dispatchEvent(event);
   });
@@ -1853,22 +1868,19 @@ async function testClickOuts(iframe, content) {
         .filter(Boolean),
     );
     const targets = findClickOutTargets(win);
+    const probingMiddle = targets.size === 0;
 
-    if (targets.size === 0) {
+    if (probingMiddle) {
       const middle =
         win.document.elementFromPoint(
           win.innerWidth / 2,
           win.innerHeight / 2,
         ) ?? win.document.body;
 
-      fireClick(win, middle, new Set(["click"]));
-
-      if (fired.length === 0) {
-        problem(
-          "none",
-          "Nothing in the banner triggers a click-out: no handler calls Creative.click and clicking the middle of the banner does nothing",
-        );
-      }
+      targets.set(
+        middle,
+        new Set(["pointerdown", "mousedown", "pointerup", "mouseup", "click"]),
+      );
     }
 
     for (const [el, types] of targets) {
@@ -1879,8 +1891,10 @@ async function testClickOuts(iframe, content) {
 
       if (fired.length === 0) {
         problem(
-          `${label}|none`,
-          `Clicking "${label}" does not trigger a click-out, although its handler calls Creative.click`,
+          probingMiddle ? "none" : `${label}|none`,
+          probingMiddle
+            ? "No click-out was detected: no direct jQuery handler calls Creative.click and a simulated mouse click in the middle of the banner produced no click-out"
+            : `Clicking "${label}" does not trigger a click-out, although its handler calls Creative.click`,
         );
       }
 
