@@ -966,6 +966,8 @@ function checkPreviewTimelines(
     );
   }
 
+  const addedTimelines = mainTimelineAdds(text);
+
   for (let n = 1; n <= count; n++) {
     const label = new RegExp(
       `addLabel\\(\\s*["'\`]frame${n}-preview["'\`]\\s*(,)?`,
@@ -988,11 +990,7 @@ function checkPreviewTimelines(
       );
     }
 
-    if (
-      !new RegExp(`\\bmainTimeline\\s*\\.add\\(\\s*frame${n}Timeline\\b`).test(
-        text,
-      )
-    ) {
+    if (!addedTimelines.has(n)) {
       problem(
         "error",
         "script.js",
@@ -1012,6 +1010,48 @@ function checkPreviewTimelines(
       );
     }
   }
+}
+
+// Frame numbers passed to mainTimeline.add(), also in chains such as
+// mainTimeline.add(frame1Timeline, 0).add(frame2Timeline, 0).
+function mainTimelineAdds(text: string): Set<number> {
+  const added = new Set<number>();
+
+  for (const match of text.matchAll(/\bmainTimeline\b/g)) {
+    let i = match.index + match[0].length;
+
+    while (true) {
+      const call = /^\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/.exec(text.slice(i));
+
+      if (!call) {
+        break;
+      }
+
+      const open = i + call[0].length - 1;
+      let depth = 0;
+      let close = open;
+
+      for (; close < text.length; close++) {
+        if (text[close] === "(") {
+          depth++;
+        } else if (text[close] === ")" && --depth === 0) {
+          break;
+        }
+      }
+
+      if (call[1] === "add") {
+        const timeline = /^\s*frame(\d+)Timeline\b/.exec(text.slice(open + 1, close));
+
+        if (timeline) {
+          added.add(Number(timeline[1]));
+        }
+      }
+
+      i = close + 1;
+    }
+  }
+
+  return added;
 }
 
 const SELECTOR_CALLS = [

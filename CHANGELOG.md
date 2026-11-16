@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.12
+
+### Fixed
+
+- Code review (ANI-003) no longer reports frame timelines as "never added to mainTimeline" when they are added in one chain, e.g. `mainTimeline.add(frame1Timeline, 0).add(frame2Timeline, 0)`.
+
 ## 0.0.11
 
 ### Added

@@ -270,6 +270,35 @@ function createFrame1Animation() {
   assert.match(messages(generated({ frames: 2 }))[0], /frame2-preview/);
 });
 
+test("accepts frame timelines added in one mainTimeline chain", () => {
+  const files = generated({ frames: 2, frame: `${frameCode(1)}\n${frameCode(2)}` }).map((file) =>
+    file.path === "script.js"
+      ? {
+          ...file,
+          content: file.content
+            .replace("const frame1Timeline = gsap.timeline();", "const frame1Timeline = gsap.timeline();\nconst frame2Timeline = gsap.timeline();")
+            .replace(
+              /function startAnimations\(\) \{[\s\S]*?\n\}/,
+              `function startAnimations() {
+  createFrame1Animation();
+  createFrame2Animation();
+  mainTimeline
+    .add(frame1Timeline, 0)
+    .add(frame2Timeline, 0);
+  mainTimeline
+    .addLabel("frame1-preview", frame1Timeline.labels["preview-ready"])
+    .addLabel("frame2-preview", frame2Timeline.labels["preview-ready"]);
+}`,
+            ),
+        }
+      : file,
+  );
+  const messages = lintBanner(files, [])
+    .filter((finding) => finding.rule === "ANI-003")
+    .map((finding) => finding.message);
+  assert.deepEqual(messages, []);
+});
+
 test("flags a Creative.js without the QA preview controls", () => {
   const files = readBoilerplate().map((file) =>
     file.path === "Creative.js"
