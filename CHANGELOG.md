@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.0.11
+
+### Added
+
+- **Create from PSD:** build a template from a Photoshop storyboard. The HTML and CSS are generated from the PSD's layers without AI.
+  - Folders become named containers.
+  - Live shapes become CSS; other artwork is exported to `src/assets/psd/`.
+  - Text keeps the PSD's typography.
+  - Rows and columns inside folders use flexbox.
+- **Feed mapping review** before the project is written, ordered size by size. Most layers are mapped automatically, also across languages:
+  - Images by name, pixels or a frame number in the column name.
+  - Texts by frame, role, layer name, punctuation and copy.
+- **Lists:** a column like `[1-5] [6-49] [50+]` fills a folder of repeated items such as buttons. All labels shrink together to the same size with auto-scale.
+- **Centre vertically in folder** option for texts on a background.
+- **Recolour SVG feed images** to white or black to match the PSD.
+- **Regenerate PSD Project** command: rebuilds the project from the same PSD, feed and settings, with the review opening on your saved choices.
+- PSDs at 2x are detected automatically, and their sizes are preselected in the Dimensions step.
+
+### Changed
+
+- The `preview-ready` label of PSD frames is placed just before the frame fades out.
+- Boilerplate interactions and click-out checks in the code review were updated.
+
 ## 0.0.10
 
 ### Added

@@ -18,7 +18,7 @@ function readBoilerplate() {
         content:
           name === "index.html"
             ? content.replace(
-                '<div id="creative_container"></div>',
+                '<div id="creative_container">{{CREATIVE_MARKUP}}</div>',
                 '<div id="creative_container"><i class="a b logo lifestyle trail"></i></div>',
               )
             : content,

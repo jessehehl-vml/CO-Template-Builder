@@ -1,5 +1,6 @@
 import React from "react";
 import AdvertiserSelectionModal from "./AdvertiserSelectionModal";
+import { matchPsdFontsToCatalog } from "../../font-matching";
 
 type VsCodeApi = {
   postMessage(message: unknown): void;
@@ -64,6 +65,19 @@ type FontsSectionProps = {
 
   apiError: string | null;
   setApiError: React.Dispatch<React.SetStateAction<string | null>>;
+  psdFonts: string[];
+  psdFontMatchResult: {
+    matchedFamilies: string[];
+    unmatched: string[];
+    addedVariants: number;
+  } | null;
+  setPsdFontMatchResult: React.Dispatch<
+    React.SetStateAction<{
+      matchedFamilies: string[];
+      unmatched: string[];
+      addedVariants: number;
+    } | null>
+  >;
 };
 
 export default function FontsSection({
@@ -88,6 +102,9 @@ export default function FontsSection({
   setLoadingAgencies,
   apiError,
   setApiError,
+  psdFonts,
+  psdFontMatchResult,
+  setPsdFontMatchResult,
 }: FontsSectionProps) {
   const addFont = () => {
     setSelectedFonts((fonts) => [
@@ -153,6 +170,40 @@ export default function FontsSection({
     });
   };
 
+  const findPsdFonts = () => {
+    const result = matchPsdFontsToCatalog(psdFonts, coFonts);
+    const keys = new Set(
+      selectedFonts
+        .filter((font) => font.family && font.variant)
+        .map((font) => fontKey(font.family, font.variant)),
+    );
+    const added = result.matches.flatMap((font) =>
+      font.variants.flatMap((variant) => {
+        const key = fontKey(font["font-family"], variant.variant);
+        if (keys.has(key)) {
+          return [];
+        }
+
+        keys.add(key);
+        return [
+          {
+            id: Date.now() + Math.random(),
+            family: font["font-family"],
+            variant: variant.variant,
+            fontUrl: font["css-base-url"],
+          },
+        ];
+      }),
+    );
+
+    setSelectedFonts([...selectedFonts, ...added]);
+    setPsdFontMatchResult({
+      matchedFamilies: result.matches.map((font) => font["font-family"]),
+      unmatched: result.unmatched,
+      addedVariants: added.length,
+    });
+  };
+
   const updateFont = (
     id: number,
     field: "family" | "variant",
@@ -177,6 +228,35 @@ export default function FontsSection({
       <p className="description">
         Select the fonts that should be included in the creative.
       </p>
+      {psdFonts.length > 0 && (
+        <div className="psd-font-search">
+          <div>
+            <strong>Fonts found in PSD</strong>
+            <span>{psdFonts.join(", ")}</span>
+          </div>
+          {psdFontMatchResult && (
+            <div className="psd-font-match-result" role="status">
+              <strong>
+                {psdFontMatchResult.addedVariants} font variants added
+              </strong>
+              {psdFontMatchResult.matchedFamilies.length > 0 && (
+                <span>
+                  Matched: {psdFontMatchResult.matchedFamilies.join(", ")}
+                </span>
+              )}
+              {psdFontMatchResult.unmatched.length > 0 && (
+                <span className="psd-font-unmatched">
+                  Not found: {psdFontMatchResult.unmatched.join(", ")}
+                </span>
+              )}
+              {psdFontMatchResult.matchedFamilies.length === 0 &&
+                psdFontMatchResult.unmatched.length === 0 && (
+                  <span>No PSD fonts were available to match.</span>
+                )}
+            </div>
+          )}
+        </div>
+      )}
       {coFonts.length > 0 ? (
         <div className="fonts-loaded">
           {" "}
@@ -215,6 +295,15 @@ export default function FontsSection({
               >
                 + Add all fonts
               </button>
+              {psdFonts.length > 0 && selectedAdvertiser !== null && (
+                <button
+                  type="button"
+                  className="font-reimport-button"
+                  onClick={findPsdFonts}
+                >
+                  Find fonts from PSD
+                </button>
+              )}
             </div>{" "}
           </div>{" "}
         </div>

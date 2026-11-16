@@ -45,20 +45,24 @@ export default function AddOnsOptions({
       toggle: () => setSplitText((current) => !current),
     },
     ...(setDrawSVGPlugin
-      ? [{
-          label: "DrawSVGPlugin",
-          description: "Loads GSAP's DrawSVGPlugin in index.html.",
-          checked: Boolean(drawSVGPlugin),
-          toggle: () => setDrawSVGPlugin((current) => !current),
-        }]
+      ? [
+          {
+            label: "DrawSVGPlugin",
+            description: "Loads GSAP's DrawSVGPlugin in index.html.",
+            checked: Boolean(drawSVGPlugin),
+            toggle: () => setDrawSVGPlugin((current) => !current),
+          },
+        ]
       : []),
     ...(setMotionPathPlugin
-      ? [{
-          label: "MotionPathPlugin",
-          description: "Loads GSAP's MotionPathPlugin in index.html.",
-          checked: Boolean(motionPathPlugin),
-          toggle: () => setMotionPathPlugin((current) => !current),
-        }]
+      ? [
+          {
+            label: "MotionPathPlugin",
+            description: "Loads GSAP's MotionPathPlugin in index.html.",
+            checked: Boolean(motionPathPlugin),
+            toggle: () => setMotionPathPlugin((current) => !current),
+          },
+        ]
       : []),
   ];
 

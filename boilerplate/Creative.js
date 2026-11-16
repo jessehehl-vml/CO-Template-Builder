@@ -88,6 +88,15 @@ window.Creative = {
         element instanceof jQuery ? element.toArray() : [element],
       )
       .filter(Boolean)
+      .map((element) => {
+        if (typeof element !== "string") {
+          return element;
+        }
+        // Image URLs (e.g. CSS backgrounds) are preloaded so they can be awaited.
+        const image = new Image();
+        image.src = element;
+        return image;
+      })
       .map(
         (el) =>
           new Promise((resolve) => {

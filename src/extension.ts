@@ -10,10 +10,21 @@ import {
 import { ZipExportService } from "./zip-export";
 import { PreviewServer } from "./preview-server";
 import { BannerReviewService } from "./banner-review";
-import { updateFontLinks, updateFontVariables, type FontLink } from "./font-links";
+import {
+  updateFontLinks,
+  updateFontVariables,
+  type FontLink,
+} from "./font-links";
 import { syncContentDimensions } from "./dimensions";
 import { renameInScript } from "./project-name";
 import { mergePlaceholders } from "./placeholders";
+import { analyzePsdBufferWithPreviews } from "./psd-analysis";
+import {
+  finishPsdCreative,
+  preparePsdCreative,
+  type PsdFeedImageCandidate,
+} from "./psd-codegen";
+import type { PsdMappingDecision, PsdMappingReview } from "./psd-mapping";
 import {
   applyAddOns,
   detectAddOns,
@@ -30,6 +41,160 @@ import type {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function uploadErrorSummary(error: unknown): string {
+  const message = errorText(error)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return message.length > 300 ? `${message.slice(0, 297)}...` : message;
+}
+
+const MAX_FEED_IMAGE_BYTES = 5 * 1024 * 1024;
+
+type PsdGenerationLog = (entry: string) => void;
+
+/** Wizard inputs saved in a PSD project so it can be regenerated without the wizard. */
+const PSD_REPLAY_FILE = "psd-replay.json";
+type PsdReplay = {
+  psdPath: string;
+  message: BoilerplateMessage;
+  decisions: PsdMappingDecision[];
+};
+
+async function loadFeedImageCandidates(
+  message: BoilerplateMessage,
+  log?: PsdGenerationLog,
+): Promise<PsdFeedImageCandidate[]> {
+  const imageUrls = new Map<string, Set<string>>();
+  const firstVariant = message.placeholderVariants[0];
+  for (const dimension of firstVariant?.dimensions ?? []) {
+    for (const placeholder of dimension.placeholders ?? []) {
+      if (!["image", "img", "image-url"].includes(placeholder.type.toLowerCase())) {
+        continue;
+      }
+      const name = placeholder.name.trim();
+      const value = typeof placeholder.value === "string" ? placeholder.value.trim() : "";
+      if (!name || !value) {
+        continue;
+      }
+      const urls = imageUrls.get(name) ?? new Set<string>();
+      urls.add(value);
+      imageUrls.set(name, urls);
+    }
+  }
+  log?.(`First variant image fields: ${JSON.stringify([...imageUrls].map(([name, urls]) => ({ name, values: urls.size })))}`);
+
+  // A field is SVG when every value in every variant is an .svg URL (SVGs can be recoloured).
+  const allValues = new Map<string, string[]>();
+  for (const variant of message.placeholderVariants) {
+    for (const dimension of variant.dimensions ?? []) {
+      for (const placeholder of dimension.placeholders ?? []) {
+        const value = typeof placeholder.value === "string" ? placeholder.value.trim() : "";
+        if (value) {
+          const name = placeholder.name.trim();
+          allValues.set(name, [...(allValues.get(name) ?? []), value]);
+        }
+      }
+    }
+  }
+  const isSvgUrl = (value: string) => {
+    try {
+      return /\.svg$/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  };
+
+  const candidates = await Promise.all(
+    [...imageUrls].map(async ([placeholderName, urls]): Promise<PsdFeedImageCandidate | undefined> => {
+      for (const value of urls) {
+        let url: URL;
+        try {
+          url = new URL(value);
+        } catch {
+          log?.(`${placeholderName}: skipped a non-URL feed value.`);
+          continue;
+        }
+        if (url.protocol !== "https:") {
+          log?.(`${placeholderName}: skipped a non-HTTPS URL.`);
+          continue;
+        }
+
+        try {
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (!response.ok) {
+            log?.(`${placeholderName}: image request returned HTTP ${response.status}.`);
+            continue;
+          }
+          const mimeType = response.headers
+            .get("content-type")
+            ?.split(";", 1)[0]
+            .trim()
+            .toLowerCase();
+          if (
+            !mimeType ||
+            !["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(
+              mimeType,
+            )
+          ) {
+            log?.(`${placeholderName}: unsupported content type ${mimeType ?? "missing"}.`);
+            continue;
+          }
+          const contentLength = Number(response.headers.get("content-length"));
+          if (contentLength > MAX_FEED_IMAGE_BYTES) {
+            log?.(`${placeholderName}: image exceeds 5 MB.`);
+            continue;
+          }
+          const data = await readResponseBodyLimited(response, MAX_FEED_IMAGE_BYTES);
+          const allSvg =
+            mimeType === "image/svg+xml" && (allValues.get(placeholderName) ?? []).every(isSvgUrl);
+          log?.(
+            `${placeholderName}: loaded ${mimeType} candidate (${data.length} bytes)${allSvg ? `; all ${allValues.get(placeholderName)?.length} feed values are SVG` : ""}.`,
+          );
+          return { placeholderName, mimeType, data, allSvg };
+        } catch (error) {
+          log?.(`${placeholderName}: fetch failed (${errorText(error)}).`);
+          continue;
+        }
+      }
+      log?.(`${placeholderName}: no usable candidate image found.`);
+      return undefined;
+    }),
+  );
+
+  return candidates.filter(
+    (candidate): candidate is PsdFeedImageCandidate => candidate !== undefined,
+  );
+}
+
+async function readResponseBodyLimited(
+  response: Response,
+  maxBytes: number,
+): Promise<Buffer> {
+  if (!response.body) {
+    throw new Error("Image response has no body.");
+  }
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new Error("Image exceeds the download size limit.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, totalBytes);
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -56,6 +221,13 @@ export function activate(context: vscode.ExtensionContext) {
       "my-vscode-extension.sidebar",
       sidebarProvider,
     ),
+    vscode.commands.registerCommand("coTemplateBuilder.regeneratePsdProject", async () => {
+      try {
+        await sidebarProvider.regeneratePsdProject();
+      } catch (error) {
+        vscode.window.showErrorMessage(errorText(error));
+      }
+    }),
   );
 }
 
@@ -67,6 +239,11 @@ class SidebarProvider implements vscode.WebviewViewProvider {
   // What the settings panel shows now, so a reloaded webview can restore it.
   private settingsView: "export" | 1 | 2 | 3 | 4 | 5 = 1;
   private wizardPanel: vscode.WebviewPanel | null = null;
+  private psdFileByPanel = new WeakMap<vscode.WebviewPanel, string>();
+  private pendingMappingReviews = new WeakMap<
+    vscode.WebviewPanel,
+    { reviewId: string; resolve: (decisions: PsdMappingDecision[] | null) => void }
+  >();
   private exportOnReady = false;
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -169,6 +346,47 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       webview.postMessage({
         type: "folderSelected",
         folder: result[0].fsPath,
+      });
+    }
+  }
+
+  private async selectPSDFile(panel: vscode.WebviewPanel): Promise<void> {
+    const webview = panel.webview;
+    const result = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      filters: { "Photoshop document": ["psd"] },
+      openLabel: "Analyze PSD",
+    });
+
+    if (!result?.[0]) {
+      webview.postMessage({ type: "psdAnalysisCancelled" });
+      return;
+    }
+
+    try {
+      const filePath = result[0].fsPath;
+      const stats = fs.statSync(filePath);
+      const maxFileSize = 250 * 1024 * 1024;
+
+      if (stats.size > maxFileSize) {
+        throw new Error("PSD files larger than 250 MB are not supported.");
+      }
+
+      const analysis = analyzePsdBufferWithPreviews(fs.readFileSync(filePath));
+      this.psdFileByPanel.set(panel, filePath);
+
+      webview.postMessage({
+        type: "psdAnalyzed",
+        fileName: path.basename(filePath),
+        ...analysis,
+      });
+    } catch (error) {
+      webview.postMessage({
+        type: "psdAnalysisError",
+        message:
+          error instanceof Error ? error.message : "Could not analyze PSD.",
       });
     }
   }
@@ -1323,8 +1541,10 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       const outcomes = results.flatMap((result) =>
         result.status === "fulfilled" ? [result.value] : [],
       );
-      const failures = results.flatMap((result) =>
-        result.status === "rejected" ? [result.reason] : [],
+      const failures = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [{ dimension: dimensions[index], error: result.reason }]
+          : [],
       );
       const uploaded = outcomes.filter((outcome) => outcome === "uploaded");
       const updated = outcomes.filter((outcome) => outcome === "updated");
@@ -1344,10 +1564,30 @@ class SidebarProvider implements vscode.WebviewViewProvider {
           `Creative Optimizations: ${parts.join(", ")}.`,
         );
       } else {
-        console.error("[CO UPLOAD] Failed uploads:", failures.map(errorText));
+        console.error(
+          "[CO UPLOAD] Failed uploads:",
+          failures.map(({ dimension, error }) => ({
+            dimension,
+            error: errorText(error),
+          })),
+        );
+
+        const failureDetails = failures
+          .slice(0, 3)
+          .map(
+            ({ dimension, error }) =>
+              `${dimension}: ${uploadErrorSummary(error)}`,
+          );
+        const moreFailures = failures.length - failureDetails.length;
+        if (moreFailures > 0) {
+          failureDetails.push(`And ${moreFailures} more failed.`);
+        }
 
         vscode.window.showWarningMessage(
-          `Creative Optimizations: ${outcomes.length} succeeded, ${failures.length} failed.`,
+          [
+            `Creative Optimizations: ${outcomes.length} succeeded, ${failures.length} failed.`,
+            ...failureDetails,
+          ].join("\n"),
         );
       }
 
@@ -1460,6 +1700,15 @@ class SidebarProvider implements vscode.WebviewViewProvider {
 
     const srcFolder = path.join(message.folder, "src");
     const settingsFolder = path.join(message.folder, "settings");
+    const psdPath = message.fromPsd
+      ? this.psdFileByPanel.get(panel)
+      : undefined;
+    if (message.fromPsd && !psdPath) {
+      throw new Error(
+        "Select and analyze a PSD before creating the boilerplate.",
+      );
+    }
+
     const files = [
       path.join(srcFolder, "index.html"),
       path.join(srcFolder, "script.js"),
@@ -1467,6 +1716,7 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       path.join(srcFolder, "Creative.js"),
       path.join(settingsFolder, "settings.json"),
       path.join(settingsFolder, "content.json"),
+      ...(message.fromPsd ? [path.join(message.folder, "storyboards")] : []),
     ];
     const existingFiles = files.filter((file) => fs.existsSync(file));
 
@@ -1484,20 +1734,41 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    let psd: Awaited<ReturnType<SidebarProvider["generatePsdCreative"]>> | undefined;
+    if (message.fromPsd && psdPath) {
+      psd = await this.generatePsdCreative(message, psdPath, (review) =>
+        this.reviewPsdMapping(panel, review),
+      );
+      if (!psd) {
+        return;
+      }
+    }
+
     const generator = new BoilerplateGenerator(this.context);
-    generator.generate(message);
+    generator.generate(message, psd?.buffer, psd?.creative);
+    if (psd) {
+      this.logSetContent(message.folder, psd.log);
+    }
 
     this.sidebarWebview?.webview.postMessage({
       type: "projectStateLoaded",
       hasProject: true,
     });
 
-    vscode.window.showInformationMessage("Creative boilerplate created.");
+    const imageMatchingMessage = psd
+      ? ` Feed image matching used ${psd.creative.imagePlaceholders.length} field(s) from ${psd.feedImageCandidateCount} visual candidate(s). Log: ${psd.logPath}`
+      : "";
+    vscode.window.showInformationMessage(
+      `Creative boilerplate created.${imageMatchingMessage}`,
+    );
 
     const openFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     // The project is not the open workspace, so open it. This reloads the window.
-    if (!openFolder || path.resolve(openFolder) !== path.resolve(message.folder)) {
+    if (
+      !openFolder ||
+      path.resolve(openFolder) !== path.resolve(message.folder)
+    ) {
       panel.dispose();
 
       await vscode.commands.executeCommand(
@@ -1514,6 +1785,202 @@ class SidebarProvider implements vscode.WebviewViewProvider {
     );
 
     panel.dispose();
+  }
+
+  /** Rebuilds the open PSD project from the PSD, feed, settings and mapping saved by the wizard. */
+  async regeneratePsdProject(): Promise<void> {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const replayPath = folder && path.join(folder, PSD_REPLAY_FILE);
+    if (!folder || !replayPath || !fs.existsSync(replayPath)) {
+      throw new Error(
+        `No ${PSD_REPLAY_FILE} in the open folder. Create the project from a PSD with the wizard once first.`,
+      );
+    }
+    const replay = JSON.parse(fs.readFileSync(replayPath, "utf8")) as PsdReplay;
+    if (!fs.existsSync(replay.psdPath)) {
+      throw new Error(`PSD not found: ${replay.psdPath}`);
+    }
+    const message = { ...replay.message, folder };
+
+    const confirmed = await vscode.window.showWarningMessage(
+      "Regenerating replaces all current project files.",
+      {
+        modal: true,
+        detail:
+          "index.html, styles.css, script.js, Creative.js, the PSD assets, settings and storyboards are rewritten from the PSD and feed. Any manual changes to these files are lost.",
+      },
+      "Continue",
+    );
+    if (confirmed !== "Continue") {
+      return;
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      "coPsdMappingReview",
+      "Review PSD Mapping",
+      vscode.ViewColumn.One,
+      { enableScripts: true },
+    );
+    panel.webview.html = this.getWebviewHtml(panel.webview, "wizard.html", undefined, true);
+    let closed = false;
+    const ready = new Promise<boolean>((resolve) => {
+      panel.onDidDispose(() => {
+        closed = true;
+        resolve(false);
+      });
+      panel.webview.onDidReceiveMessage((incoming: WizardPanelMessage) => {
+        if (incoming.type === "psdMappingReady") {
+          resolve(true);
+        } else if (
+          incoming.type === "psdMappingConfirmed" ||
+          incoming.type === "psdMappingCancelled"
+        ) {
+          const pending = this.pendingMappingReviews.get(panel);
+          if (pending && pending.reviewId === incoming.reviewId) {
+            pending.resolve(
+              incoming.type === "psdMappingConfirmed" ? incoming.decisions : null,
+            );
+          }
+          if (incoming.type === "psdMappingCancelled") {
+            panel.dispose();
+          }
+        }
+      });
+    });
+
+    const psd = await this.generatePsdCreative(message, replay.psdPath, async (review) => {
+      // Start from the saved choices; layers that are new in the PSD keep the proposal.
+      const saved = new Map(replay.decisions.map((decision) => [decision.key, decision]));
+      for (const layer of review.frames.flatMap(({ layers }) => layers)) {
+        const decision = saved.get(layer.key);
+        if (decision) {
+          // The match method only describes the proposal, not a different saved choice.
+          if (decision.field !== layer.field) {
+            delete layer.method;
+          }
+          layer.field = decision.field;
+          layer.centerInParent = decision.centerInParent;
+          // null = switched off in an earlier review; missing = not decided yet (on by default).
+          layer.recolorChecked = decision.recolor !== null;
+        }
+      }
+      if (!(await ready) || closed) {
+        return null;
+      }
+      return this.reviewPsdMapping(panel, review);
+    });
+    if (!psd) {
+      return;
+    }
+    panel.dispose();
+    new BoilerplateGenerator(this.context).generate(message, psd.buffer, psd.creative);
+    this.logSetContent(folder, psd.log);
+    this.previewServer.open();
+    vscode.window.showInformationMessage(
+      `PSD project regenerated from ${path.basename(replay.psdPath)}. Log: ${psd.logPath}`,
+    );
+  }
+
+  private logSetContent(folder: string, log: PsdGenerationLog): void {
+    const generatedScript = fs.readFileSync(path.join(folder, "src", "script.js"), "utf8");
+    const setContentBody =
+      /function setContent\(content\)\s*\{([\s\S]*?)\n\}/.exec(generatedScript)?.[1]?.trim() ?? "(function not found)";
+    log(`Generated setContent body:\n${setContentBody || "(empty)"}`);
+  }
+
+  /** Builds the creative from the PSD and feed; resolves undefined when the mapping is cancelled. */
+  private async generatePsdCreative(
+    message: BoilerplateMessage,
+    psdPath: string,
+    chooseMapping: (review: PsdMappingReview) => Promise<PsdMappingDecision[] | null>,
+  ) {
+    fs.mkdirSync(message.folder, { recursive: true });
+    const logPath = path.join(message.folder, "psd-generation.log");
+    fs.writeFileSync(
+      logPath,
+      `PSD generation diagnostics\nStarted: ${new Date().toISOString()}\nPSD: ${path.basename(psdPath)}\n`,
+      "utf8",
+    );
+    const psdLog: PsdGenerationLog = (entry) =>
+      fs.appendFileSync(logPath, `${entry}\n`, "utf8");
+    psdLog(`Feed variants received: ${message.placeholderVariants.length}`);
+    const sourceBuffer = fs.readFileSync(psdPath);
+
+    const analysis = analyzePsdBufferWithPreviews(sourceBuffer);
+    const feedImageCandidates = await loadFeedImageCandidates(message, psdLog);
+    const feedImageCandidateCount = feedImageCandidates.length;
+    psdLog(`Usable feed image candidates: ${feedImageCandidateCount}`);
+    const feedTextFields = [
+      ...new Map(
+        (message.placeholderVariants[0]?.dimensions ?? [])
+          .flatMap((dimension) => dimension.placeholders ?? [])
+          .filter(
+            (placeholder) =>
+              placeholder.type.toLowerCase() === "text" &&
+              typeof placeholder.value === "string" &&
+              placeholder.value.trim() !== "",
+          )
+          .map((placeholder) => [
+            placeholder.name.trim(),
+            {
+              placeholderName: placeholder.name.trim(),
+              value: String(placeholder.value),
+            },
+          ]),
+      ).values(),
+    ];
+    const prepared = preparePsdCreative(
+      sourceBuffer,
+      analysis.storyboards,
+      Boolean(message.psdIs2x),
+      feedImageCandidates,
+      feedTextFields,
+      message.selectedFonts
+        .filter((font) => font.family?.trim())
+        .map((font, index) => ({
+          variable: `--font${index + 1}`,
+          family: font.family,
+          variant: font.variant,
+        })),
+      psdLog,
+    );
+    const decisions = await chooseMapping(prepared.review);
+    if (!decisions) {
+      psdLog("Mapping review cancelled; no files were written.");
+      return undefined;
+    }
+    const creative = finishPsdCreative(prepared.draft, decisions, psdLog);
+    psdLog(`Returned image placeholders: ${JSON.stringify(creative.imagePlaceholders)}`);
+    const replay: PsdReplay = { psdPath, message, decisions };
+    fs.writeFileSync(
+      path.join(message.folder, PSD_REPLAY_FILE),
+      JSON.stringify(replay, null, 2),
+      "utf8",
+    );
+    return {
+      creative,
+      buffer: sourceBuffer,
+      log: psdLog,
+      logPath,
+      feedImageCandidateCount,
+    };
+  }
+
+  /** Shows the proposed layer-to-feed mapping in the wizard; resolves null when cancelled or closed. */
+  private reviewPsdMapping(
+    panel: vscode.WebviewPanel,
+    review: PsdMappingReview,
+  ): Promise<PsdMappingDecision[] | null> {
+    return new Promise((resolve) => {
+      const closed = panel.onDidDispose(() => finish(null));
+      const finish = (decisions: PsdMappingDecision[] | null) => {
+        closed.dispose();
+        this.pendingMappingReviews.delete(panel);
+        resolve(decisions);
+      };
+      this.pendingMappingReviews.set(panel, { reviewId: review.reviewId, resolve: finish });
+      panel.webview.postMessage({ type: "psdMappingReview", review });
+    });
   }
 
   private openWizard() {
@@ -1548,11 +2015,26 @@ class SidebarProvider implements vscode.WebviewViewProvider {
             );
           }
           return;
+        case "psdMappingConfirmed":
+        case "psdMappingCancelled": {
+          const pending = this.pendingMappingReviews.get(panel);
+          if (pending && pending.reviewId === message.reviewId) {
+            pending.resolve(
+              message.type === "psdMappingConfirmed" ? message.decisions : null,
+            );
+          }
+          return;
+        }
         case "selectFolder":
           await this.selectFolder(panel.webview);
           return;
+        case "selectPSDFile":
+          await this.selectPSDFile(panel);
+          return;
         case "loadAgencyData":
           await this.loadAgencyData(panel, "authenticationState");
+          return;
+        case "psdMappingReady":
           return;
         default:
           await this.handleCommonPanelMessage(message, panel, "[WIZARD]");
@@ -1565,6 +2047,7 @@ class SidebarProvider implements vscode.WebviewViewProvider {
     webview: vscode.Webview,
     fileName: "index.html" | "wizard.html",
     initialState?: { hasProject: boolean },
+    mappingReviewOnly = false,
   ): string {
     const htmlPath = path.join(
       this.extensionUri.fsPath,
@@ -1589,6 +2072,12 @@ class SidebarProvider implements vscode.WebviewViewProvider {
         "</head>",
         () =>
           `<script>window.__INITIAL_STATE__ = ${JSON.stringify(initialState)};</script>\n</head>`,
+      );
+    }
+    if (mappingReviewOnly) {
+      html = html.replace(
+        "</head>",
+        () => "<script>window.__MAPPING_REVIEW_ONLY__ = true;</script>\n</head>",
       );
     }
 

@@ -1,13 +1,5 @@
 import React, { useRef, useState } from "react";
-
-const DIMENSIONS = [
-  { size: "300x250", label: "Medium Rectangle" },
-  { size: "300x600", label: "Half Page" },
-  { size: "160x600", label: "Wide Skyscraper" },
-  { size: "728x90", label: "Leaderboard" },
-  { size: "970x250", label: "Billboard" },
-  { size: "320x50", label: "Mobile Banner" },
-];
+import { STANDARD_AD_DIMENSIONS } from "../../dimensions";
 
 type DimensionsSectionProps = {
   dimensionType: "single" | "responsive";
@@ -168,7 +160,7 @@ export default function DimensionsSection({
       </div>
 
       <div className="dimensions">
-        {DIMENSIONS.map(({ size, label }) => {
+        {STANDARD_AD_DIMENSIONS.map(({ size, label }) => {
           const selected = selectedDimensions.includes(size);
 
           return (

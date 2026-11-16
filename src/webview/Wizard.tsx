@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { parseFeed, type ParsedFeed } from "../feed";
+import { detectPsd2x, mapPsdDimensions, STANDARD_AD_DIMENSIONS } from "../dimensions";
+import type { PsdStoryboardPreview } from "../psd-analysis";
 declare global {
   interface Window {
     __WIZARD_MODE__?: "create" | "export";
@@ -14,13 +16,9 @@ import AddOnsSection from "./components/AddOnsSection";
 import CreateSection from "./components/CreateSection";
 import WizardFooter from "./components/WizardFooter";
 import AdvertiserSelectionModal from "./components/AdvertiserSelectionModal";
-declare function acquireVsCodeApi(): {
-  postMessage(message: unknown): void;
-  getState(): unknown;
-  setState(state: unknown): void;
-};
-
-const vscode = acquireVsCodeApi();
+import PsdMappingReview from "./components/PsdMappingReview";
+import type { PsdMappingReview as MappingReview } from "../psd-mapping";
+import { vscode } from "./vscode-api";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -134,6 +132,7 @@ export default function Wizard() {
     { width: string; height: string }[]
   >([]);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [mappingReview, setMappingReview] = useState<MappingReview | null>(null);
   const productRequestsLoaded = useRef<Set<string>>(new Set());
   useEffect(() => {
     vscode.postMessage({
@@ -196,24 +195,42 @@ export default function Wizard() {
   // Adset Details
   const [name, setName] = useState("");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [creationSource, setCreationSource] = useState<"scratch" | "psd">(
+    "scratch",
+  );
+  const [psdAnalysis, setPsdAnalysis] = useState<{
+    fileName: string;
+    dimensions: string[];
+    dimensionCount: number;
+    frameCount: number;
+    fonts: string[];
+    storyboards: PsdStoryboardPreview[];
+  } | null>(null);
+  const [psdAnalysisError, setPsdAnalysisError] = useState<string | null>(null);
+  const [isAnalyzingPSD, setIsAnalyzingPSD] = useState(false);
+  const [psdIs2x, setPsdIs2x] = useState(false);
 
   // Dimensions
-  type DimensionOption = {
-    size: string;
-    label: string;
-  };
-  const DIMENSIONS: DimensionOption[] = [
-    { size: "300x250", label: "Medium Rectangle" },
-    { size: "300x600", label: "Half Page" },
-    { size: "160x600", label: "Wide Skyscraper" },
-    { size: "728x90", label: "Leaderboard" },
-    { size: "970x250", label: "Billboard" },
-    { size: "320x50", label: "Mobile Banner" },
-  ];
   const [dimensionType, setDimensionType] = useState<"single" | "responsive">(
     "single",
   );
   const [selectedDimensions, setSelectedDimensions] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!psdAnalysis) {
+      return;
+    }
+
+    const dimensionSelection = mapPsdDimensions(
+      psdAnalysis.dimensions,
+      psdIs2x,
+    );
+    if (dimensionSelection) {
+      setDimensionType(dimensionSelection.dimensionType);
+      setSelectedDimensions(dimensionSelection.selectedDimensions);
+      setCustomDimensions(dimensionSelection.customDimensions);
+    }
+  }, [psdAnalysis, psdIs2x]);
 
   // Preset keys and filled-in custom keys as real sizes ("custom-0" becomes "300x250").
   const resolvedSizes = [
@@ -350,6 +367,11 @@ export default function Wizard() {
 
   const [coFonts, setCoFonts] = useState<COFont[]>([]);
   const [selectedFonts, setSelectedFonts] = useState<SelectedFont[]>([]);
+  const [psdFontMatchResult, setPsdFontMatchResult] = useState<{
+    matchedFamilies: string[];
+    unmatched: string[];
+    addedVariants: number;
+  } | null>(null);
   const [loadingFonts, setLoadingFonts] = useState(false);
   const [showFontImportModal, setShowFontImportModal] = useState(false);
   const [showExportAdvertiserModal, setShowExportAdvertiserModal] =
@@ -360,6 +382,61 @@ export default function Wizard() {
 
   // Create Boilerplate
   const [frameCount, setFrameCount] = useState(1);
+  const psdFrameCount = Math.max(
+    1,
+    ...(psdAnalysis?.storyboards.map((frame) => frame.frame) ?? []),
+  );
+  const activeFrameCount =
+    creationSource === "psd" ? psdFrameCount : frameCount;
+  const activeFrameNumbers = Array.from(
+    { length: activeFrameCount },
+    (_, index) => index + 1,
+  );
+  const activeFrameKey = activeFrameNumbers.join(",");
+  const defaultFrameDuration = Math.max(
+    0.1,
+    Math.floor((15 / activeFrameCount) * 10) / 10,
+  );
+  const [frameDurations, setFrameDurations] = useState<Record<number, number>>(
+    {},
+  );
+  useEffect(() => {
+    setFrameDurations(
+      Object.fromEntries(
+        activeFrameNumbers.map((frame) => [frame, defaultFrameDuration]),
+      ),
+    );
+  }, [activeFrameKey, defaultFrameDuration]);
+  const totalFrameDuration = activeFrameNumbers.reduce(
+    (total, frame) => total + (frameDurations[frame] ?? defaultFrameDuration),
+    0,
+  );
+  const updateFrameDuration = (
+    frameNumber: number,
+    requestedDuration: number,
+  ) => {
+    setFrameDurations((current) => {
+      const otherDuration = activeFrameNumbers.reduce(
+        (total, frame) =>
+          frame === frameNumber
+            ? total
+            : total + (current[frame] ?? defaultFrameDuration),
+        0,
+      );
+      const maxDuration = Math.max(
+        0.1,
+        Math.floor((15 - otherDuration) * 10) / 10,
+      );
+      const requested = Number.isFinite(requestedDuration)
+        ? requestedDuration
+        : defaultFrameDuration;
+      const duration = Math.max(
+        0.1,
+        Math.min(Math.round(requested * 10) / 10, maxDuration),
+      );
+      return { ...current, [frameNumber]: duration };
+    });
+  };
   const [autoFillPlaceholderContent, setAutoFillPlaceholderContent] =
     useState(false);
   const [autoScaleFonts, setAutoScaleFonts] = useState(false);
@@ -510,6 +587,28 @@ export default function Wizard() {
       if (message.type === "folderSelected") {
         setSelectedFolder(message.folder);
       }
+      if (message.type === "psdAnalyzed") {
+        setPsdIs2x(detectPsd2x(message.dimensions ?? []));
+        setPsdAnalysis({
+          fileName: message.fileName,
+          dimensions: message.dimensions,
+          dimensionCount: message.dimensionCount,
+          frameCount: message.frameCount,
+          fonts: message.fonts,
+          storyboards: message.storyboards ?? [],
+        });
+
+        setPsdAnalysisError(null);
+        setIsAnalyzingPSD(false);
+      }
+      if (message.type === "psdAnalysisError") {
+        setPsdAnalysis(null);
+        setPsdAnalysisError(message.message);
+        setIsAnalyzingPSD(false);
+      }
+      if (message.type === "psdAnalysisCancelled") {
+        setIsAnalyzingPSD(false);
+      }
       if (message.type === "openSettingsSection") {
         setExportMode(false);
         setSettingsMode(true);
@@ -623,7 +722,7 @@ export default function Wizard() {
           }[];
 
           const presetSizes = new Set(
-            DIMENSIONS.map((dimension) => dimension.size),
+            STANDARD_AD_DIMENSIONS.map((dimension) => dimension.size),
           );
 
           const restoredSelectedDimensions: string[] = [];
@@ -817,6 +916,7 @@ export default function Wizard() {
         setShowFontImportModal(false);
         setApiError(null);
 
+        setPsdFontMatchResult(null);
         setSelectedFonts((current) => {
           if (settingsMode && Array.isArray(loadedSettings?.selectedFonts)) {
             return loadedSettings.selectedFonts.map(
@@ -852,6 +952,12 @@ export default function Wizard() {
 
       if (message.type === "coFontsError") {
         setLoadingFonts(false);
+        setApiError(message.message ?? "Could not load fonts from advertiser.");
+        return;
+      }
+
+      if (message.type === "psdMappingReview") {
+        setMappingReview(message.review);
         return;
       }
     };
@@ -861,7 +967,7 @@ export default function Wizard() {
     return () => {
       window.removeEventListener("message", handler);
     };
-  }, []);
+  }, [psdAnalysis, selectedFonts, settingsMode, loadedSettings]);
 
   // Has Settings Changed
   const hasSettingsChanges = (() => {
@@ -1102,6 +1208,13 @@ export default function Wizard() {
                   selectedFolder={selectedFolder}
                   setSelectedFolder={setSelectedFolder}
                   settingsMode={false}
+                  creationSource={creationSource}
+                  setCreationSource={setCreationSource}
+                  psdAnalysis={psdAnalysis}
+                  psdIs2x={psdIs2x}
+                  setPsdIs2x={setPsdIs2x}
+                  psdAnalysisError={psdAnalysisError}
+                  isAnalyzingPSD={isAnalyzingPSD}
                 />
               )}
 
@@ -1174,6 +1287,9 @@ export default function Wizard() {
                   setLoadingAgencies={setLoadingAgencies}
                   apiError={apiError}
                   setApiError={setApiError}
+                  psdFonts={psdAnalysis?.fonts ?? []}
+                  psdFontMatchResult={psdFontMatchResult}
+                  setPsdFontMatchResult={setPsdFontMatchResult}
                 />
               )}
 
@@ -1184,7 +1300,14 @@ export default function Wizard() {
                   selectedDimensions={resolvedSizes}
                   selectedAdset={selectedAdset}
                   frameCount={frameCount}
+                  fromPsd={creationSource === "psd"}
+                  psdIs2x={psdIs2x}
                   setFrameCount={setFrameCount}
+                  psdStoryboards={psdAnalysis?.storyboards ?? []}
+                  frameNumbers={activeFrameNumbers}
+                  frameDurations={frameDurations}
+                  totalFrameDuration={totalFrameDuration}
+                  onFrameDurationChange={updateFrameDuration}
                   autoFillPlaceholderContent={autoFillPlaceholderContent}
                   setAutoFillPlaceholderContent={setAutoFillPlaceholderContent}
                   autoScaleFonts={autoScaleFonts}
@@ -1285,6 +1408,9 @@ export default function Wizard() {
                   setLoadingAgencies={setLoadingAgencies}
                   apiError={apiError}
                   setApiError={setApiError}
+                  psdFonts={[]}
+                  psdFontMatchResult={null}
+                  setPsdFontMatchResult={setPsdFontMatchResult}
                 />
               )}
 
@@ -1531,6 +1657,26 @@ export default function Wizard() {
               setShowExportAdvertiserModal(false);
             }}
           />
+          {mappingReview && (
+            <PsdMappingReview
+              review={mappingReview}
+              onConfirm={(decisions) => {
+                vscode.postMessage({
+                  type: "psdMappingConfirmed",
+                  reviewId: mappingReview.reviewId,
+                  decisions,
+                });
+                setMappingReview(null);
+              }}
+              onCancel={() => {
+                vscode.postMessage({
+                  type: "psdMappingCancelled",
+                  reviewId: mappingReview.reviewId,
+                });
+                setMappingReview(null);
+              }}
+            />
+          )}
         </main>
         {!exportMode && (
           <WizardFooter
@@ -1539,6 +1685,12 @@ export default function Wizard() {
             settingsMode={settingsMode}
             name={name}
             selectedFolder={selectedFolder}
+            creationSource={creationSource}
+            hasPsdAnalysis={psdAnalysis !== null}
+            psdIs2x={psdIs2x}
+            psdFrameCount={psdFrameCount}
+            frameDurations={frameDurations}
+            totalFrameDuration={totalFrameDuration}
             selectedDimensions={resolvedSizes}
             selectedAdsetId={selectedAdsetId}
             parsedFeed={parsedFeed}

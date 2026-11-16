@@ -7,6 +7,47 @@ import {
   GSAP_LATEST,
 } from "./addons";
 import { fontBlock } from "./font-links";
+import { writePsdStoryboardImages } from "./psd-analysis";
+import type { PsdGeneratedCreative } from "./psd-codegen";
+
+/** Fills a PSD list folder (e.g. a row of buttons) with one copy of its first item per feed value. */
+const LIST_HELPER_CODE = `// ============================================================
+// Lists
+// ============================================================
+
+// Reads "[a] [b] [c]" or a JSON array.
+function parseList(value) {
+  const text = String(value ?? "").trim();
+  if (text.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed.map(String);
+      }
+    } catch (error) {
+      // Not JSON; read it as [a] [b] [c].
+    }
+  }
+  return [...text.matchAll(/\\[([^\\]]*)\\]/g)].map((match) => match[1].trim());
+}
+
+function fillList(selector, value) {
+  const labels = parseList(value);
+  $(selector).each(function () {
+    const list = $(this);
+    const template = list.children().first();
+    if (labels.length === 0 || template.length === 0) {
+      return;
+    }
+    list.children().remove();
+    labels.forEach((label) => {
+      const item = template.clone();
+      item.find("[data-list-label]").addBack("[data-list-label]").text(label);
+      list.append(item);
+    });
+  });
+}
+`;
 
 type SelectedFont = {
   family: string;
@@ -60,12 +101,15 @@ export type BoilerplateMessage = {
   products?: Record<string, { products?: { items?: unknown[] } }>;
   collectionMapping?: CollectionMapping | null;
   frames?: number;
+  frameDurations?: Record<number, number>;
   autoFillPlaceholderContent?: boolean;
   autoScaleFonts?: boolean;
   browserCheck?: boolean;
   splitText?: boolean;
   drawSVGPlugin?: boolean;
   motionPathPlugin?: boolean;
+  fromPsd?: boolean;
+  psdIs2x?: boolean;
   selectedAgency?: SettingsSelection | null;
   selectedAdvertiser?: SettingsSelection | null;
   selectedAdset?: SettingsSelection | null;
@@ -74,10 +118,37 @@ export type BoilerplateMessage = {
 export class BoilerplateGenerator {
   constructor(private readonly extensionContext: vscode.ExtensionContext) {}
 
-  generate(message: BoilerplateMessage): void {
+  generate(
+    message: BoilerplateMessage,
+    psdBuffer?: Buffer,
+    psdCreative?: PsdGeneratedCreative,
+  ): void {
+    this.getFrameDurations(message, this.getFrameCount(message.frames));
+
     const srcFolder = path.join(message.folder, "src");
     const settingsFolder = path.join(message.folder, "settings");
     this.createProjectDirectories(srcFolder, settingsFolder);
+
+    if (message.fromPsd) {
+      if (!psdBuffer) {
+        throw new Error("PSD source data is required to generate storyboards.");
+      }
+      if (!psdCreative) {
+        throw new Error(
+          "Generated PSD HTML/CSS is required for PSD projects.",
+        );
+      }
+      writePsdStoryboardImages(
+        psdBuffer,
+        path.join(message.folder, "storyboards"),
+        Boolean(message.psdIs2x),
+      );
+      for (const asset of psdCreative.assets) {
+        const assetPath = path.join(srcFolder, asset.fileName);
+        fs.mkdirSync(path.dirname(assetPath), { recursive: true });
+        fs.writeFileSync(assetPath, asset.data);
+      }
+    }
 
     const settings = this.buildSettings(message);
     this.writeFile(path.join(settingsFolder, "settings.json"), settings);
@@ -86,7 +157,12 @@ export class BoilerplateGenerator {
     this.writeFile(path.join(settingsFolder, "content.json"), content);
 
     const templates = this.loadTemplates();
-    const generated = this.buildGeneratedFiles(message, templates);
+    // Feed lists rely on autoscale to keep their labels inside the PSD's row.
+    const generated = this.buildGeneratedFiles(
+      psdCreative?.listPlaceholders?.length ? { ...message, autoScaleFonts: true } : message,
+      templates,
+      psdCreative,
+    );
 
     this.writeGeneratedFiles(srcFolder, generated);
   }
@@ -290,6 +366,7 @@ export class BoilerplateGenerator {
       styles: string;
       creative: string;
     },
+    psdCreative?: PsdGeneratedCreative,
   ): {
     index: string;
     script: string;
@@ -297,6 +374,7 @@ export class BoilerplateGenerator {
     creative: string;
   } {
     const frameCount = this.getFrameCount(message.frames);
+    const frameDurations = this.getFrameDurations(message, frameCount);
     const dimensionSuffix = this.getDimensionSuffix(message);
     const generator = this.getGenerator();
     const today = this.getCurrentDate();
@@ -311,10 +389,17 @@ export class BoilerplateGenerator {
       templates.script,
       message,
       frameCount,
+      frameDurations,
       dimensionSuffix,
       today,
-      this.buildPlaceholderContent(message),
+      this.buildPlaceholderContent(
+        message,
+        psdCreative?.imagePlaceholders ?? [],
+        psdCreative?.textPlaceholders ?? [],
+        psdCreative?.listPlaceholders ?? [],
+      ),
       this.buildInteractionCode(message),
+      psdCreative?.frameSets,
     );
 
     return {
@@ -325,9 +410,14 @@ export class BoilerplateGenerator {
         message.splitText,
         message.drawSVGPlugin,
         message.motionPathPlugin,
+        psdCreative?.html,
       ),
-      script,
-      styles: this.buildStyles(templates.styles, message.selectedFonts),
+      script: psdCreative?.listPlaceholders?.length ? `${script}\n${LIST_HELPER_CODE}` : script,
+      styles: this.buildStyles(
+        templates.styles,
+        message.selectedFonts,
+        psdCreative?.css,
+      ),
       creative,
     };
   }
@@ -342,6 +432,29 @@ export class BoilerplateGenerator {
     }
 
     return frameCount;
+  }
+
+  private getFrameDurations(
+    message: BoilerplateMessage,
+    frameCount: number,
+  ): number[] {
+    const durations = Array.from({ length: frameCount }, (_, index) => {
+      const duration = Number(
+        message.frameDurations?.[index + 1] ?? 15 / frameCount,
+      );
+      if (!Number.isFinite(duration) || duration <= 0) {
+        throw new Error("Each frame duration must be greater than 0 seconds.");
+      }
+      return duration;
+    });
+
+    if (
+      durations.reduce((total, duration) => total + duration, 0) > 15.000001
+    ) {
+      throw new Error("The total frame duration cannot exceed 15 seconds.");
+    }
+
+    return durations;
   }
 
   private getDimensionSuffix(message: BoilerplateMessage): string {
@@ -365,6 +478,7 @@ export class BoilerplateGenerator {
     splitText?: boolean,
     drawSVGPlugin?: boolean,
     motionPathPlugin?: boolean,
+    creativeMarkup = "",
   ): string {
     const fontLinks = fonts.length > 0 ? fontBlock(fonts) : "";
     const gsapPlugins = [
@@ -392,17 +506,22 @@ export class BoilerplateGenerator {
     return html
       .replaceAll("{{GENERATOR}}", generator)
       .replace("{{FONT_LINKS}}", fontLinks)
+      .replace("{{CREATIVE_MARKUP}}", creativeMarkup)
       .replace("{{SPLIT_TEXT}}", gsapPlugins)
       .replace(/\n[ \t]*\{\{SPLIT_TEXT\}\}/, "");
   }
 
-  private buildStyles(template: string, fonts: SelectedFont[]): string {
+  private buildStyles(
+    template: string,
+    fonts: SelectedFont[],
+    psdStyles = "",
+  ): string {
     const fontVariables = fonts
       .filter((font) => font.family?.trim())
       .map((font, index) => `  --font${index + 1}: "${font.family}";`)
       .join("\n");
 
-    return template.replace("/* FONT_VARIABLES */", fontVariables);
+    return `${template.replace("/* FONT_VARIABLES */", fontVariables)}\n${psdStyles}`;
   }
 
   private buildCreativeScript(
@@ -424,20 +543,48 @@ export class BoilerplateGenerator {
     template: string,
     message: BoilerplateMessage,
     frameCount: number,
+    frameDurations: number[],
     dimensionSuffix: string,
     today: string,
     placeholderContentCode: string,
     interactionCode: string,
+    psdFrameSets?: number[][],
   ): string {
     const frameTimelines = Array.from(
       { length: frameCount },
       (_, index) => `const frame${index + 1}Timeline = gsap.timeline();`,
     ).join("\n");
 
+    const frameFadeIns = frameDurations.map((duration, index) =>
+      message.fromPsd && index > 0
+        ? Math.min(0.25, duration / 2, frameDurations[index - 1] / 2)
+        : message.fromPsd
+          ? Math.min(0.25, duration / 2)
+          : 0,
+    );
+    const frameFadeOuts = frameDurations.map((duration, index) =>
+      message.fromPsd && index < frameCount - 1
+        ? Math.min(0.25, duration / 2, frameDurations[index + 1] / 2)
+        : 0,
+    );
+
     const frameAnimations = Array.from({ length: frameCount }, (_, index) => {
       const frameNumber = index + 1;
+      const duration = frameDurations[index];
+      const fadeIn = frameFadeIns[index];
+      const fadeOut = frameFadeOuts[index];
+      const psdFrameAnimation = message.fromPsd
+        ? this.buildPsdFrameAnimation(
+            frameNumber,
+            frameCount,
+            duration,
+            fadeIn,
+            fadeOut,
+            psdFrameSets,
+          )
+        : `  frame${frameNumber}Timeline.addLabel("preview-ready");\n  frame${frameNumber}Timeline.to({}, { duration: ${duration} });\n  frame${frameNumber}Timeline.duration(${duration});`;
       return `function createFrame${frameNumber}Animation() {
-  frame${frameNumber}Timeline.addLabel("preview-ready");
+${psdFrameAnimation}
 }
 
 `;
@@ -446,10 +593,12 @@ export class BoilerplateGenerator {
     const startAnimations = `function startAnimations() {
 ${Array.from({ length: frameCount }, (_, index) => {
   const frameNumber = index + 1;
+  const overlap = message.fromPsd ? frameFadeIns[index] : 0;
+  const addPosition = overlap > 0 ? `, "-=${overlap}"` : "";
   return `  createFrame${frameNumber}Animation();
-  const frame${frameNumber}Start = mainTimeline.duration();
+  const frame${frameNumber}Start = mainTimeline.duration() - ${overlap};
 
-  mainTimeline.add(frame${frameNumber}Timeline);
+  mainTimeline.add(frame${frameNumber}Timeline${addPosition});
   mainTimeline.addLabel(
     "frame${frameNumber}-preview",
     frame${frameNumber}Start + frame${frameNumber}Timeline.labels["preview-ready"],
@@ -472,8 +621,69 @@ ${Array.from({ length: frameCount }, (_, index) => {
       .replace("/* INTERACTION_CODE */", interactionCode);
   }
 
-  private buildPlaceholderContent(message: BoilerplateMessage): string {
-    if (!message.autoFillPlaceholderContent) {
+  /**
+   * Shows the elements of one PSD frame: elements tagged with data-frames fade in when their
+   * first frame starts and fade out after their last frame; shared elements stay visible.
+   */
+  private buildPsdFrameAnimation(
+    frameNumber: number,
+    frameCount: number,
+    duration: number,
+    fadeIn: number,
+    fadeOut: number,
+    frameSets?: number[][],
+  ): string {
+    const timeline = `frame${frameNumber}Timeline`;
+    const inFrame = `[data-frames~="${frameNumber}"]`;
+    const enters =
+      !frameSets ||
+      frameSets.some(
+        (frames) => frames.includes(frameNumber) && !frames.includes(frameNumber - 1),
+      );
+    const leaves =
+      frameNumber < frameCount &&
+      fadeOut > 0 &&
+      (!frameSets ||
+        frameSets.some(
+          (frames) => frames.includes(frameNumber) && !frames.includes(frameNumber + 1),
+        ));
+    const enterSelector =
+      frameNumber === 1
+        ? `#creative_container ${inFrame}`
+        : `#creative_container ${inFrame}:not([data-frames~="${frameNumber - 1}"])`;
+    const leaveSelector = `#creative_container ${inFrame}:not([data-frames~="${frameNumber + 1}"])`;
+    // QA previews the frame's final state, just before it starts fading out.
+    const previewReady = Math.round(Math.max(fadeIn, duration - fadeOut - 0.05) * 1000) / 1000;
+
+    return [
+      `  ${timeline}.to({}, { duration: ${duration} }, 0);`,
+      enters
+        ? `  ${timeline}.fromTo('${enterSelector}', { autoAlpha: 0 }, { autoAlpha: 1, duration: ${fadeIn}, immediateRender: false }, 0);`
+        : "",
+      `  ${timeline}.addLabel("preview-ready", ${previewReady});`,
+      leaves
+        ? `  ${timeline}.to('${leaveSelector}', { autoAlpha: 0, duration: ${fadeOut} }, ${Math.round((duration - fadeOut) * 1000) / 1000});`
+        : "",
+      `  ${timeline}.duration(${duration});`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  private buildPlaceholderContent(
+    message: BoilerplateMessage,
+    psdImagePlaceholders: string[] = [],
+    psdTextPlaceholders: string[] = [],
+    psdListPlaceholders: string[] = [],
+  ): string {
+    const psdImagePlaceholderSet = new Set(psdImagePlaceholders);
+    const psdTextPlaceholderSet = new Set([...psdTextPlaceholders, ...psdListPlaceholders]);
+    const psdListPlaceholderSet = new Set(psdListPlaceholders);
+    if (
+      !message.autoFillPlaceholderContent &&
+      psdImagePlaceholderSet.size === 0 &&
+      psdTextPlaceholderSet.size === 0
+    ) {
       return "";
     }
 
@@ -487,15 +697,19 @@ ${Array.from({ length: frameCount }, (_, index) => {
           }
 
           const type = placeholder.type.toLowerCase();
-          placeholderMap.set(
-            name,
-            type === "image" || type === "img" ? "image" : "text",
-          );
+          const isImage = ["image", "img", "image-url"].includes(type);
+          if (
+            !message.autoFillPlaceholderContent &&
+            !(isImage ? psdImagePlaceholderSet : psdTextPlaceholderSet).has(name)
+          ) {
+            continue;
+          }
+          placeholderMap.set(name, isImage ? "image" : "text");
         }
       }
     }
 
-    const imageSelectors: string[] = [];
+    const imageWaits: string[] = [];
 
     const lines = Array.from(placeholderMap.entries()).map(([name, type]) => {
       const selector = `.${name}`;
@@ -503,17 +717,26 @@ ${Array.from({ length: frameCount }, (_, index) => {
         ? `content?.${name}?.value`
         : `content?.[${JSON.stringify(name)}]?.value`;
 
+      if (type === "image" && psdImagePlaceholderSet.has(name)) {
+        imageWaits.push(contentReference);
+        return `  $("${selector}").css("background-image", "url(" + JSON.stringify(${contentReference}) + ")");`;
+      }
+
       if (type === "image") {
-        imageSelectors.push(`$("${selector}")`);
+        imageWaits.push(`$("${selector}")`);
         return `  $("${selector}").attr("src", ${contentReference});`;
+      }
+
+      if (psdListPlaceholderSet.has(name)) {
+        return `  fillList("${selector}", ${contentReference});`;
       }
 
       return `  $("${selector}").html(${contentReference});`;
     });
 
-    // One call after all srcs are set; addWait accepts several elements.
-    if (imageSelectors.length > 0) {
-      lines.push(`  Creative.addWait(${imageSelectors.join(", ")});`);
+    // One call after all images are set; addWait accepts elements and image URLs.
+    if (imageWaits.length > 0) {
+      lines.push(`  Creative.addWait(${imageWaits.join(", ")});`);
     }
 
     return lines.join("\n");

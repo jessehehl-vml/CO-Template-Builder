@@ -78,6 +78,140 @@ button:hover {
   border-color: var(--vscode-focusBorder);
 }
 
+.creation-source-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.creation-source-fieldset legend {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.creation-source-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+  cursor: pointer;
+}
+
+.creation-source-option:has(input:checked) {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.creation-source-option input {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
+  accent-color: var(--vscode-focusBorder);
+}
+
+.creation-source-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.creation-source-option strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.creation-source-option small {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+}
+
+.psd-analysis-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px;
+  border-left: 2px solid var(--vscode-testing-iconPassed);
+  background: var(--vscode-editor-background);
+  font-size: 11px;
+}
+
+.psd-analysis-summary small {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+}
+
+.psd-upload-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.psd-2x-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+  cursor: pointer;
+}
+
+.psd-2x-option input {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
+  accent-color: var(--vscode-focusBorder);
+}
+
+.psd-2x-option strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.psd-analysis-error {
+  margin: 8px 0 0;
+  color: var(--vscode-errorForeground);
+  font-size: 11px;
+}
+
+.psd-font-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 10px;
+  border-left: 2px solid var(--vscode-focusBorder);
+  background: var(--vscode-editor-background);
+  font-size: 11px;
+}
+
+.psd-font-search > div:first-child,
+.psd-font-match-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.psd-font-search span,
+.psd-font-match-result span {
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
+.psd-font-search .psd-font-unmatched {
+  color: var(--vscode-errorForeground);
+}
+
 .selected-adset {
   display: flex;
   flex-direction: column;
@@ -2387,6 +2521,92 @@ p.description {
   color: var(--vscode-foreground);
 }
 
+.psd-storyboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.psd-storyboard-frame {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+}
+
+.psd-storyboard-frame img {
+  display: block;
+  width: 100%;
+  height: 132px;
+  object-fit: contain;
+  background: var(--vscode-textCodeBlock-background);
+}
+
+.psd-storyboard-frame figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 7px 9px;
+  font-size: 11px;
+}
+
+.psd-storyboard-meta,
+.psd-storyboard-duration {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.psd-storyboard-duration {
+  cursor: pointer;
+}
+
+.psd-storyboard-frame figcaption span {
+  color: var(--vscode-descriptionForeground);
+}
+
+.frame-duration-total {
+  margin: -4px 0 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.frame-duration-list {
+  max-width: 360px;
+}
+
+.frame-duration-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: 12px;
+}
+
+.frame-duration-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.frame-duration-input input {
+  width: 76px;
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 3px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+}
+
 .create-group-hint {
   margin: -4px 0 8px;
   font-size: 12px;
@@ -2506,4 +2726,181 @@ p.description {
   font-weight: 500;
   color: var(--vscode-foreground);
   text-align: right;
+}
+
+.mapping-modal {
+  max-width: 1100px;
+}
+
+.mapping-frame + .mapping-frame {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.mapping-frame h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mapping-frame h3 span {
+  margin-left: 6px;
+  color: var(--vscode-descriptionForeground);
+  font-weight: 400;
+}
+
+.mapping-frame-content {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.mapping-preview {
+  position: relative;
+  width: 100%;
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.mapping-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mapping-box {
+  position: absolute;
+  border: 1px dashed transparent;
+  pointer-events: none;
+}
+
+.mapping-box.is-highlighted {
+  border: 2px solid var(--vscode-focusBorder);
+  background: color-mix(in srgb, var(--vscode-focusBorder) 18%, transparent);
+}
+
+.mapping-box.mapping-box-parent {
+  border: 1px dashed var(--vscode-focusBorder);
+}
+
+.mapping-size {
+  margin: 24px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: 15px;
+}
+
+.mapping-size:first-child {
+  margin-top: 0;
+}
+
+.mapping-toggle {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mapping-toggle:hover {
+  text-decoration: underline;
+}
+
+.mapping-table tr.mapping-child td:nth-child(2) {
+  padding-left: 24px;
+}
+
+.mapping-table tr.mapping-child.is-replaced td {
+  opacity: 0.55;
+}
+
+.mapping-center {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.mapping-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.mapping-table td {
+  padding: 6px 8px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.mapping-table tr.is-highlighted td {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.mapping-kind {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+
+.mapping-layer span {
+  display: block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapping-layer small,
+.mapping-field small {
+  display: block;
+  margin-top: 2px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+.mapping-field select {
+  width: 100%;
+  min-width: 200px;
+  padding: 4px 6px;
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border);
+}
+
+.mapping-thumb {
+  width: 56px;
+}
+
+.mapping-thumb img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 50% / 12px 12px;
+}
+
+.mapping-thumb img.is-recolored-white {
+  filter: brightness(0) invert(1);
+}
+
+.mapping-thumb img.is-recolored-black {
+  filter: brightness(0);
 }

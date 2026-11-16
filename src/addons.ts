@@ -17,44 +17,111 @@ export type ProjectFiles = {
 
 export const AUTO_SCALE_FONT_CODE = `autoScaleFont: function (minSize = 8, selector = "[data-font_autoscale]") {
     const elements = $(selector).toArray();
+    // Groups (e.g. a row of buttons) shrink all their labels together until the items fit.
+    const groups = $("[data-font_autoscale_group]").toArray();
 
-    return Promise.all(
-      elements.map((element) => {
-        return new Promise((resolve) => {
-          const styles = window.getComputedStyle(element);
+    const scaleElement = (element) =>
+      new Promise((resolve) => {
+        const styles = window.getComputedStyle(element);
 
-          let fontSize = parseFloat(styles.fontSize);
-          const maxHeight = parseFloat(styles.maxHeight);
-          const maxWidth = element.clientWidth;
+        let fontSize = parseFloat(styles.fontSize);
+        const maxHeight = parseFloat(styles.maxHeight);
+        const maxWidth = element.clientWidth;
 
-          if (
-            !Number.isFinite(fontSize) ||
-            !Number.isFinite(maxHeight) ||
-            !maxWidth
-          ) {
+        if (
+          !Number.isFinite(fontSize) ||
+          !Number.isFinite(maxHeight) ||
+          !maxWidth
+        ) {
+          resolve();
+          return;
+        }
+
+        const fits = () =>
+          element.scrollHeight <= maxHeight && element.scrollWidth <= maxWidth;
+
+        const reduceFontSize = () => {
+          if (fits() || fontSize <= minSize) {
             resolve();
             return;
           }
 
-          const fits = () =>
-            element.scrollHeight <= maxHeight && element.scrollWidth <= maxWidth;
-
-          const reduceFontSize = () => {
-            if (fits() || fontSize <= minSize) {
-              resolve();
-              return;
-            }
-
-            fontSize -= 0.5;
-            element.style.fontSize = \`\${fontSize}px\`;
-
-            requestAnimationFrame(reduceFontSize);
-          };
+          fontSize -= 0.5;
+          element.style.fontSize = \`\${fontSize}px\`;
 
           requestAnimationFrame(reduceFontSize);
-        });
-      }),
-    );
+        };
+
+        requestAnimationFrame(reduceFontSize);
+      });
+
+    const scaleGroup = (group) =>
+      new Promise((resolve) => {
+        const labels = $(group).find("[data-list-label]").toArray();
+        const items = $(group).children().toArray();
+
+        if (labels.length === 0 || items.length === 0) {
+          resolve();
+          return;
+        }
+
+        const startSize = Math.min(
+          ...labels.map((label) => parseFloat(window.getComputedStyle(label).fontSize)),
+        );
+        let fontSize = startSize;
+        // Padding and min-width shrink with the text, so the items keep their proportions.
+        const boxes = $(group)
+          .find("*")
+          .toArray()
+          .map((element) => {
+            const styles = window.getComputedStyle(element);
+            return {
+              element,
+              paddingLeft: parseFloat(styles.paddingLeft) || 0,
+              paddingRight: parseFloat(styles.paddingRight) || 0,
+              minWidth: parseFloat(styles.minWidth) || 0,
+            };
+          })
+          .filter(({ paddingLeft, paddingRight, minWidth }) => paddingLeft || paddingRight || minWidth);
+
+        // Measures the items themselves, so overflow on either side counts.
+        const fits = () => {
+          const box = group.getBoundingClientRect();
+          const rects = items.map((item) => item.getBoundingClientRect());
+          const width = Math.max(...rects.map((rect) => rect.right)) - Math.min(...rects.map((rect) => rect.left));
+          const height = Math.max(...rects.map((rect) => rect.bottom)) - Math.min(...rects.map((rect) => rect.top));
+          return width <= box.width + 0.5 && height <= box.height + 0.5;
+        };
+
+        const setFontSize = () => {
+          const ratio = fontSize / startSize;
+          labels.forEach((label) => {
+            label.style.fontSize = \`\${fontSize}px\`;
+          });
+          boxes.forEach(({ element, paddingLeft, paddingRight, minWidth }) => {
+            element.style.paddingLeft = \`\${paddingLeft * ratio}px\`;
+            element.style.paddingRight = \`\${paddingRight * ratio}px\`;
+            element.style.minWidth = \`\${minWidth * ratio}px\`;
+          });
+        };
+
+        const reduceFontSize = () => {
+          if (fits() || fontSize <= minSize) {
+            resolve();
+            return;
+          }
+
+          fontSize -= 0.5;
+          setFontSize();
+
+          requestAnimationFrame(reduceFontSize);
+        };
+
+        setFontSize();
+        requestAnimationFrame(reduceFontSize);
+      });
+
+    return Promise.all([...elements.map(scaleElement), ...groups.map(scaleGroup)]);
   },`;
 
 // Regexes avoid "//" so the code check does not read them as comments.

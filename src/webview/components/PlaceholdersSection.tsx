@@ -725,6 +725,7 @@ export default function PlaceholdersSection({
 
     setFeedIdentifierColumn(
       findColumn([
+        "variant_id",
         "variantID",
         "variantId",
         "variant-name",

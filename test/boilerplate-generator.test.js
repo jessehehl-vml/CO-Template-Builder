@@ -411,9 +411,15 @@ test("renaming the project updates the script.js header", () => {
   const renamed = renameInScript(script, "Old Name", "New Name");
 
   assert.match(renamed, /^\/\*\*\n \* New Name - 300x250\n/);
-  assert.equal(renamed.slice(renamed.indexOf("@Owner")), script.slice(script.indexOf("@Owner")));
+  assert.equal(
+    renamed.slice(renamed.indexOf("@Owner")),
+    script.slice(script.indexOf("@Owner")),
+  );
   assert.equal(renameInScript(script, "Other Name", "New Name"), script);
-  assert.equal(renameInScript("const a = 1;", "Old Name", "New Name"), "const a = 1;");
+  assert.equal(
+    renameInScript("const a = 1;", "Old Name", "New Name"),
+    "const a = 1;",
+  );
 });
 
 test("generate accepts positive whole frame counts", () => {
@@ -423,6 +429,75 @@ test("generate accepts positive whole frame counts", () => {
 
   assert.match(script, /const frame1Timeline = gsap\.timeline\(\);/);
   assert.doesNotMatch(script, /const frame2Timeline = gsap\.timeline\(\);/);
+});
+
+test("generate applies custom durations to each frame timeline", () => {
+  const { folder } = createProject({
+    frames: 2,
+    frameDurations: { 1: 4.5, 2: 7.25 },
+  });
+  const script = readGeneratedFile(folder, "script.js");
+
+  assert.match(script, /frame1Timeline\.to\(\{\}, \{ duration: 4\.5 \}\)/);
+  assert.match(script, /frame1Timeline\.duration\(4\.5\)/);
+  assert.match(script, /frame2Timeline\.to\(\{\}, \{ duration: 7\.25 \}\)/);
+  assert.match(script, /frame2Timeline\.duration\(7\.25\)/);
+});
+
+test("PSD frame timelines show elements by data-frames using configured durations", () => {
+  const template = fs.readFileSync(
+    path.join(__dirname, "..", "boilerplate", "script.js"),
+    "utf8",
+  );
+  const script = createGenerator().buildScript(
+    template,
+    createMessage({ fromPsd: true }),
+    3,
+    [2, 3, 4],
+    "",
+    "2026-11-12",
+    "",
+    ";",
+    [[1, 2, 3], [1, 2], [3]],
+  );
+
+  assert.match(
+    script,
+    /frame1Timeline\.fromTo\('#creative_container \[data-frames~="1"\]', \{ autoAlpha: 0 \}/,
+  );
+  // Nothing new starts in frame 2, so it only holds.
+  assert.doesNotMatch(script, /frame2Timeline\.fromTo/);
+  assert.match(
+    script,
+    /frame2Timeline\.to\('#creative_container \[data-frames~="2"\]:not\(\[data-frames~="3"\]\)', \{ autoAlpha: 0, duration: 0\.25 \}, 2\.75\)/,
+  );
+  assert.match(
+    script,
+    /frame3Timeline\.fromTo\('#creative_container \[data-frames~="3"\]:not\(\[data-frames~="2"\]\)'/,
+  );
+  assert.doesNotMatch(script, /frame1Timeline\.to\('#creative_container/);
+  assert.match(script, /frame1Timeline\.duration\(2\)/);
+  assert.match(script, /frame3Timeline\.duration\(4\)/);
+  assert.match(script, /mainTimeline\.add\(frame2Timeline, "-=0\.25"\)/);
+  assert.doesNotThrow(() => new Function(script.replace("Creative.start();", "")));
+});
+
+test("generate rejects frame durations with a total over 15 seconds", () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const generator = createGenerator();
+
+  assert.throws(
+    () =>
+      generator.generate(
+        createMessage({
+          folder,
+          frames: 2,
+          frameDurations: { 1: 10, 2: 5.1 },
+        }),
+      ),
+    /total frame duration cannot exceed 15 seconds/,
+  );
+  assert.equal(fs.existsSync(path.join(folder, "src")), false);
 });
 
 test("generate rejects invalid frame counts", () => {
@@ -510,6 +585,115 @@ test("generate omits placeholder autofill when disabled", () => {
   const script = readGeneratedFile(folder, "script.js");
 
   assert.doesNotMatch(script, /\.html\(content\?\.headline\?\.value\);/);
+});
+
+test("PSD image placeholders map feed content even when general autofill is off", () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const generator = createGenerator();
+  generator.generate(
+    createMessage({
+      folder,
+      autoFillPlaceholderContent: false,
+      placeholderVariants: [
+        {
+          dimensions: [
+            {
+              placeholders: [
+                { name: "product-image", type: "image-url", value: "feed.png" },
+                { name: "headline", type: "text", value: "Offer" },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+    undefined,
+    {
+      html: '<div class="psd-feed-image product-image" role="img"></div>',
+      css: "",
+      assets: [],
+      imagePlaceholders: ["product-image"],
+    },
+  );
+
+  const script = readGeneratedFile(folder, "script.js");
+  assert.match(
+    script,
+    /\$\("\.product-image"\)\.css\("background-image", "url\(" \+ JSON\.stringify\(content\?\.\["product-image"\]\?\.value\) \+ "\)"\);/,
+  );
+  assert.match(
+    script,
+    /Creative\.addWait\(content\?\.\["product-image"\]\?\.value\);/,
+  );
+  assert.doesNotMatch(script, /\.headline"\)\.html\(/);
+});
+
+test("PSD text placeholders are filled from the feed even when general autofill is off", () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const generator = createGenerator();
+  generator.generate(
+    createMessage({
+      folder,
+      autoFillPlaceholderContent: false,
+      placeholderVariants: [
+        {
+          dimensions: [
+            {
+              placeholders: [
+                { name: "f1_headline", type: "text", value: "Offer" },
+                { name: "legal", type: "text", value: "T&Cs" },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+    undefined,
+    {
+      html: '<h1 class="f1_headline" data-font_autoscale=""></h1>',
+      css: "",
+      assets: [],
+      imagePlaceholders: [],
+      textPlaceholders: ["f1_headline"],
+    },
+  );
+
+  const script = readGeneratedFile(folder, "script.js");
+  assert.match(script, /\$\("\.f1_headline"\)\.html\(content\?\.f1_headline\?\.value\);/);
+  assert.doesNotMatch(script, /\.legal"\)/);
+});
+
+test("PSD list placeholders fill their folder and turn on autoscale", () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const generator = createGenerator();
+  generator.generate(
+    createMessage({
+      folder,
+      autoFillPlaceholderContent: false,
+      autoScaleFonts: false,
+      placeholderVariants: [
+        {
+          dimensions: [
+            { placeholders: [{ name: "cta_selection", type: "text", value: "[1-5] [6-49] [50+]" }] },
+          ],
+        },
+      ],
+    }),
+    undefined,
+    {
+      html: '<div class="buttons cta_selection" data-font_autoscale_group=""></div>',
+      css: "",
+      assets: [],
+      imagePlaceholders: [],
+      listPlaceholders: ["cta_selection"],
+    },
+  );
+
+  const script = readGeneratedFile(folder, "script.js");
+  assert.match(script, /fillList\("\.cta_selection", content\?\.cta_selection\?\.value\);/);
+  assert.match(script, /function fillList\(selector, value\)/);
+  assert.match(script, /await Creative\.autoScaleFont\(\);/);
+  assert.match(readGeneratedFile(folder, "Creative.js"), /const scaleGroup = \(group\) =>/);
 });
 
 test("generate maps collection products and limits unique items", () => {
@@ -724,6 +908,27 @@ test("generate embeds generator metadata and selected font resources", () => {
     /<link rel="stylesheet" type="text\/css" media="all" href="https:\/\/fonts\.example\/open-sans\?v=700">/,
   );
   assert.match(styles, /--font1: "Open Sans";/);
+});
+
+test("generate inserts PSD markup inside the creative container", () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "co-template-builder-"));
+  const generator = createGenerator();
+
+  generator.generate(createMessage({ folder }), undefined, {
+    html: '<div class="psd-artboard"><span>Editable headline</span></div>',
+    css: "#creative_container .psd-artboard { color: red; }",
+    assets: [],
+  });
+
+  const index = readGeneratedFile(folder, "index.html");
+  const styles = readGeneratedFile(folder, "styles.css");
+
+  assert.match(
+    index,
+    /<div id="creative_container"><div class="psd-artboard"><span>Editable headline<\/span><\/div><\/div>/,
+  );
+  assert.doesNotMatch(index, /CREATIVE_MARKUP/);
+  assert.match(styles, /#creative_container \.psd-artboard \{ color: red; \}/);
 });
 
 test("generate adds a click interaction when a click placeholder is present", () => {

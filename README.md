@@ -19,6 +19,11 @@ It is designed to keep the repetitive setup out of your workflow so you can focu
   - [4. Fonts](#4-fonts)
   - [5. Create boilerplate](#5-create-boilerplate)
 
+- [Create from a PSD](#create-from-a-psd)
+  - [Preparing the PSD](#preparing-the-psd)
+  - [Feed mapping review](#feed-mapping-review)
+  - [Regenerating](#regenerating)
+
 - [Working with a template](#working-with-a-template)
   - [Template settings](#template-settings)
   - [Adding your creative](#adding-your-creative)
@@ -84,6 +89,8 @@ You do **not** need to connect to Creative Optimizations before starting a proje
 The wizard is made up of five steps.
 
 ## 1. Template name
+
+Choose whether to **create from scratch** or **create from PSD**. See [Create from a PSD](#create-from-a-psd) for the PSD workflow.
 
 Enter the name you want to use for the template.
 
@@ -225,6 +232,28 @@ This step includes options in two groups.
 For example, selecting three frames generates the corresponding frame structure so you can build a three-frame animation directly in the project.
 
 Once the boilerplate has been created, the project is ready for development in VS Code.
+
+---
+
+# Create from a PSD
+
+Choose **Create from PSD** in step 1 and pick a Photoshop storyboard. The wizard reads its sizes, frames and fonts, detects 2x PSDs and preselects the dimensions. The HTML and CSS are generated from the PSD's layers.
+
+## Preparing the PSD
+
+- Use one artboard per size and frame, e.g. `300x250 frame 1`.
+- Group layers in named folders: each folder becomes a `div` with that name.
+- Name layers after their feed column (`logo_aral`, `headline_f3`) to have them mapped automatically.
+
+## Feed mapping review
+
+Before the files are written, a review shows which feed column each layer uses. Most of it is filled in automatically; check it, change what's needed and click **Create project**.
+
+## Regenerating
+
+Run **CO Template Builder: Regenerate PSD Project** from the Command Palette to rebuild the project with the same PSD, feed and settings. It opens the review with your previous choices.
+
+> **Warning:** regenerating replaces all generated project files. Manual changes to them are lost.
 
 ---
 
@@ -671,6 +700,7 @@ MyTemplate/
 │   ├── script.js
 │   ├── styles.css
 │   ├── Creative.js
+│   ├── assets/psd/          (PSD projects: exported artwork)
 │   └── dimensions/
 │       ├── 300x250.css
 │       ├── 320x50.css
@@ -682,6 +712,9 @@ MyTemplate/
 │
 ├── storyboards/
 │   └── ...
+│
+├── psd-replay.json          (PSD projects: inputs for Regenerate)
+├── psd-generation.log       (PSD projects: mapping details)
 │
 └── export/
     └── ...

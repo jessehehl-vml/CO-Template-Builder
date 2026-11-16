@@ -1,4 +1,5 @@
 import type { BoilerplateMessage } from "./boilerplate-generator";
+import type { PsdMappingDecision } from "./psd-mapping";
 
 export interface CoExportMessage {
   agencyId: number;
@@ -67,4 +68,8 @@ export type WizardPanelMessage =
   | CommonPanelMessage
   | { type: "loadAgencyData" }
   | { type: "selectFolder" }
+  | { type: "selectPSDFile" }
+  | { type: "psdMappingReady" }
+  | { type: "psdMappingConfirmed"; reviewId: string; decisions: PsdMappingDecision[] }
+  | { type: "psdMappingCancelled"; reviewId: string }
   | ({ type: "createBoilerplate" } & BoilerplateMessage);

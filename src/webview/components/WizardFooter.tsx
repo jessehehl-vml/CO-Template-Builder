@@ -94,6 +94,12 @@ type WizardFooterProps = {
   motionPathPlugin: boolean;
   name: string;
   selectedFolder: string | null;
+  creationSource: "scratch" | "psd";
+  hasPsdAnalysis: boolean;
+  psdIs2x: boolean;
+  psdFrameCount: number;
+  frameDurations: Record<number, number>;
+  totalFrameDuration: number;
   userName: string | null;
   dimensionType: "single" | "responsive";
   selectedDimensions: string[];
@@ -145,6 +151,12 @@ export default function WizardFooter({
   settingsMode,
   name,
   selectedFolder,
+  creationSource,
+  hasPsdAnalysis,
+  psdIs2x,
+  psdFrameCount,
+  frameDurations,
+  totalFrameDuration,
   selectedDimensions,
   selectedAdsetId,
   parsedFeed,
@@ -199,11 +211,15 @@ export default function WizardFooter({
         <button
           className="primary-button"
           disabled={
-            (step === 1 && (name.trim() === "" || !selectedFolder)) ||
+            (step === 1 &&
+              (name.trim() === "" ||
+                !selectedFolder ||
+                (creationSource === "psd" && !hasPsdAnalysis))) ||
             (step === 2 && selectedDimensions.length === 0) ||
             (step === 3 &&
               ((!selectedAdsetId && !parsedFeed) ||
-                (!!parsedFeed && !isFeedMappingFinished)))
+                (!!parsedFeed && !isFeedMappingFinished))) ||
+            (step === 5 && totalFrameDuration > 15)
           }
           onClick={() => {
             if (step < 5) {
@@ -223,7 +239,10 @@ export default function WizardFooter({
               placeholderVariants,
               products,
               collectionMapping,
-              frames: frameCount,
+              frames: creationSource === "psd" ? psdFrameCount : frameCount,
+              frameDurations,
+              fromPsd: creationSource === "psd",
+              psdIs2x,
               autoFillPlaceholderContent,
               autoScaleFonts,
               browserCheck,
