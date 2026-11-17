@@ -72,11 +72,14 @@ async function loadFeedImageCandidates(
   const firstVariant = message.placeholderVariants[0];
   for (const dimension of firstVariant?.dimensions ?? []) {
     for (const placeholder of dimension.placeholders ?? []) {
-      if (!["image", "img", "image-url"].includes(placeholder.type.toLowerCase())) {
+      if (
+        !["image", "img", "image-url"].includes(placeholder.type.toLowerCase())
+      ) {
         continue;
       }
       const name = placeholder.name.trim();
-      const value = typeof placeholder.value === "string" ? placeholder.value.trim() : "";
+      const value =
+        typeof placeholder.value === "string" ? placeholder.value.trim() : "";
       if (!name || !value) {
         continue;
       }
@@ -85,14 +88,17 @@ async function loadFeedImageCandidates(
       imageUrls.set(name, urls);
     }
   }
-  log?.(`First variant image fields: ${JSON.stringify([...imageUrls].map(([name, urls]) => ({ name, values: urls.size })))}`);
+  log?.(
+    `First variant image fields: ${JSON.stringify([...imageUrls].map(([name, urls]) => ({ name, values: urls.size })))}`,
+  );
 
   // A field is SVG when every value in every variant is an .svg URL (SVGs can be recoloured).
   const allValues = new Map<string, string[]>();
   for (const variant of message.placeholderVariants) {
     for (const dimension of variant.dimensions ?? []) {
       for (const placeholder of dimension.placeholders ?? []) {
-        const value = typeof placeholder.value === "string" ? placeholder.value.trim() : "";
+        const value =
+          typeof placeholder.value === "string" ? placeholder.value.trim() : "";
         if (value) {
           const name = placeholder.name.trim();
           allValues.set(name, [...(allValues.get(name) ?? []), value]);
@@ -109,62 +115,79 @@ async function loadFeedImageCandidates(
   };
 
   const candidates = await Promise.all(
-    [...imageUrls].map(async ([placeholderName, urls]): Promise<PsdFeedImageCandidate | undefined> => {
-      for (const value of urls) {
-        let url: URL;
-        try {
-          url = new URL(value);
-        } catch {
-          log?.(`${placeholderName}: skipped a non-URL feed value.`);
-          continue;
-        }
-        if (url.protocol !== "https:") {
-          log?.(`${placeholderName}: skipped a non-HTTPS URL.`);
-          continue;
-        }
+    [...imageUrls].map(
+      async ([placeholderName, urls]): Promise<
+        PsdFeedImageCandidate | undefined
+      > => {
+        for (const value of urls) {
+          let url: URL;
+          try {
+            url = new URL(value);
+          } catch {
+            log?.(`${placeholderName}: skipped a non-URL feed value.`);
+            continue;
+          }
+          if (url.protocol !== "https:") {
+            log?.(`${placeholderName}: skipped a non-HTTPS URL.`);
+            continue;
+          }
 
-        try {
-          const response = await fetch(url, {
-            signal: AbortSignal.timeout(10_000),
-          });
-          if (!response.ok) {
-            log?.(`${placeholderName}: image request returned HTTP ${response.status}.`);
+          try {
+            const response = await fetch(url, {
+              signal: AbortSignal.timeout(10_000),
+            });
+            if (!response.ok) {
+              log?.(
+                `${placeholderName}: image request returned HTTP ${response.status}.`,
+              );
+              continue;
+            }
+            const mimeType = response.headers
+              .get("content-type")
+              ?.split(";", 1)[0]
+              .trim()
+              .toLowerCase();
+            if (
+              !mimeType ||
+              ![
+                "image/png",
+                "image/jpeg",
+                "image/webp",
+                "image/svg+xml",
+              ].includes(mimeType)
+            ) {
+              log?.(
+                `${placeholderName}: unsupported content type ${mimeType ?? "missing"}.`,
+              );
+              continue;
+            }
+            const contentLength = Number(
+              response.headers.get("content-length"),
+            );
+            if (contentLength > MAX_FEED_IMAGE_BYTES) {
+              log?.(`${placeholderName}: image exceeds 5 MB.`);
+              continue;
+            }
+            const data = await readResponseBodyLimited(
+              response,
+              MAX_FEED_IMAGE_BYTES,
+            );
+            const allSvg =
+              mimeType === "image/svg+xml" &&
+              (allValues.get(placeholderName) ?? []).every(isSvgUrl);
+            log?.(
+              `${placeholderName}: loaded ${mimeType} candidate (${data.length} bytes)${allSvg ? `; all ${allValues.get(placeholderName)?.length} feed values are SVG` : ""}.`,
+            );
+            return { placeholderName, mimeType, data, allSvg };
+          } catch (error) {
+            log?.(`${placeholderName}: fetch failed (${errorText(error)}).`);
             continue;
           }
-          const mimeType = response.headers
-            .get("content-type")
-            ?.split(";", 1)[0]
-            .trim()
-            .toLowerCase();
-          if (
-            !mimeType ||
-            !["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(
-              mimeType,
-            )
-          ) {
-            log?.(`${placeholderName}: unsupported content type ${mimeType ?? "missing"}.`);
-            continue;
-          }
-          const contentLength = Number(response.headers.get("content-length"));
-          if (contentLength > MAX_FEED_IMAGE_BYTES) {
-            log?.(`${placeholderName}: image exceeds 5 MB.`);
-            continue;
-          }
-          const data = await readResponseBodyLimited(response, MAX_FEED_IMAGE_BYTES);
-          const allSvg =
-            mimeType === "image/svg+xml" && (allValues.get(placeholderName) ?? []).every(isSvgUrl);
-          log?.(
-            `${placeholderName}: loaded ${mimeType} candidate (${data.length} bytes)${allSvg ? `; all ${allValues.get(placeholderName)?.length} feed values are SVG` : ""}.`,
-          );
-          return { placeholderName, mimeType, data, allSvg };
-        } catch (error) {
-          log?.(`${placeholderName}: fetch failed (${errorText(error)}).`);
-          continue;
         }
-      }
-      log?.(`${placeholderName}: no usable candidate image found.`);
-      return undefined;
-    }),
+        log?.(`${placeholderName}: no usable candidate image found.`);
+        return undefined;
+      },
+    ),
   );
 
   return candidates.filter(
@@ -221,13 +244,16 @@ export function activate(context: vscode.ExtensionContext) {
       "my-vscode-extension.sidebar",
       sidebarProvider,
     ),
-    vscode.commands.registerCommand("coTemplateBuilder.regeneratePsdProject", async () => {
-      try {
-        await sidebarProvider.regeneratePsdProject();
-      } catch (error) {
-        vscode.window.showErrorMessage(errorText(error));
-      }
-    }),
+    vscode.commands.registerCommand(
+      "coTemplateBuilder.regeneratePsdProject",
+      async () => {
+        try {
+          await sidebarProvider.regeneratePsdProject();
+        } catch (error) {
+          vscode.window.showErrorMessage(errorText(error));
+        }
+      },
+    ),
   );
 }
 
@@ -242,7 +268,10 @@ class SidebarProvider implements vscode.WebviewViewProvider {
   private psdFileByPanel = new WeakMap<vscode.WebviewPanel, string>();
   private pendingMappingReviews = new WeakMap<
     vscode.WebviewPanel,
-    { reviewId: string; resolve: (decisions: PsdMappingDecision[] | null) => void }
+    {
+      reviewId: string;
+      resolve: (decisions: PsdMappingDecision[] | null) => void;
+    }
   >();
   private exportOnReady = false;
   constructor(
@@ -1734,7 +1763,9 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
-    let psd: Awaited<ReturnType<SidebarProvider["generatePsdCreative"]>> | undefined;
+    let psd:
+      | Awaited<ReturnType<SidebarProvider["generatePsdCreative"]>>
+      | undefined;
     if (message.fromPsd && psdPath) {
       psd = await this.generatePsdCreative(message, psdPath, (review) =>
         this.reviewPsdMapping(panel, review),
@@ -1821,7 +1852,12 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       vscode.ViewColumn.One,
       { enableScripts: true },
     );
-    panel.webview.html = this.getWebviewHtml(panel.webview, "wizard.html", undefined, true);
+    panel.webview.html = this.getWebviewHtml(
+      panel.webview,
+      "wizard.html",
+      undefined,
+      true,
+    );
     let closed = false;
     const ready = new Promise<boolean>((resolve) => {
       panel.onDidDispose(() => {
@@ -1838,7 +1874,9 @@ class SidebarProvider implements vscode.WebviewViewProvider {
           const pending = this.pendingMappingReviews.get(panel);
           if (pending && pending.reviewId === incoming.reviewId) {
             pending.resolve(
-              incoming.type === "psdMappingConfirmed" ? incoming.decisions : null,
+              incoming.type === "psdMappingConfirmed"
+                ? incoming.decisions
+                : null,
             );
           }
           if (incoming.type === "psdMappingCancelled") {
@@ -1848,32 +1886,42 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       });
     });
 
-    const psd = await this.generatePsdCreative(message, replay.psdPath, async (review) => {
-      // Start from the saved choices; layers that are new in the PSD keep the proposal.
-      const saved = new Map(replay.decisions.map((decision) => [decision.key, decision]));
-      for (const layer of review.frames.flatMap(({ layers }) => layers)) {
-        const decision = saved.get(layer.key);
-        if (decision) {
-          // The match method only describes the proposal, not a different saved choice.
-          if (decision.field !== layer.field) {
-            delete layer.method;
+    const psd = await this.generatePsdCreative(
+      message,
+      replay.psdPath,
+      async (review) => {
+        // Start from the saved choices; layers that are new in the PSD keep the proposal.
+        const saved = new Map(
+          replay.decisions.map((decision) => [decision.key, decision]),
+        );
+        for (const layer of review.frames.flatMap(({ layers }) => layers)) {
+          const decision = saved.get(layer.key);
+          if (decision) {
+            // The match method only describes the proposal, not a different saved choice.
+            if (decision.field !== layer.field) {
+              delete layer.method;
+            }
+            layer.field = decision.field;
+            layer.centerInParent = decision.centerInParent;
+            // null = switched off in an earlier review; missing = not decided yet (on by default).
+            layer.recolorChecked = decision.recolor !== null;
           }
-          layer.field = decision.field;
-          layer.centerInParent = decision.centerInParent;
-          // null = switched off in an earlier review; missing = not decided yet (on by default).
-          layer.recolorChecked = decision.recolor !== null;
         }
-      }
-      if (!(await ready) || closed) {
-        return null;
-      }
-      return this.reviewPsdMapping(panel, review);
-    });
+        if (!(await ready) || closed) {
+          return null;
+        }
+        return this.reviewPsdMapping(panel, review);
+      },
+    );
     if (!psd) {
       return;
     }
     panel.dispose();
-    new BoilerplateGenerator(this.context).generate(message, psd.buffer, psd.creative);
+    new BoilerplateGenerator(this.context).generate(
+      message,
+      psd.buffer,
+      psd.creative,
+    );
     this.logSetContent(folder, psd.log);
     this.previewServer.open();
     vscode.window.showInformationMessage(
@@ -1882,9 +1930,14 @@ class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private logSetContent(folder: string, log: PsdGenerationLog): void {
-    const generatedScript = fs.readFileSync(path.join(folder, "src", "script.js"), "utf8");
+    const generatedScript = fs.readFileSync(
+      path.join(folder, "src", "script.js"),
+      "utf8",
+    );
     const setContentBody =
-      /function setContent\(content\)\s*\{([\s\S]*?)\n\}/.exec(generatedScript)?.[1]?.trim() ?? "(function not found)";
+      /function setContent\(content\)\s*\{([\s\S]*?)\n\}/
+        .exec(generatedScript)?.[1]
+        ?.trim() ?? "(function not found)";
     log(`Generated setContent body:\n${setContentBody || "(empty)"}`);
   }
 
@@ -1892,7 +1945,9 @@ class SidebarProvider implements vscode.WebviewViewProvider {
   private async generatePsdCreative(
     message: BoilerplateMessage,
     psdPath: string,
-    chooseMapping: (review: PsdMappingReview) => Promise<PsdMappingDecision[] | null>,
+    chooseMapping: (
+      review: PsdMappingReview,
+    ) => Promise<PsdMappingDecision[] | null>,
   ) {
     fs.mkdirSync(message.folder, { recursive: true });
     const logPath = path.join(message.folder, "psd-generation.log");
@@ -1950,7 +2005,9 @@ class SidebarProvider implements vscode.WebviewViewProvider {
       return undefined;
     }
     const creative = finishPsdCreative(prepared.draft, decisions, psdLog);
-    psdLog(`Returned image placeholders: ${JSON.stringify(creative.imagePlaceholders)}`);
+    psdLog(
+      `Returned image placeholders: ${JSON.stringify(creative.imagePlaceholders)}`,
+    );
     const replay: PsdReplay = { psdPath, message, decisions };
     fs.writeFileSync(
       path.join(message.folder, PSD_REPLAY_FILE),
@@ -1978,7 +2035,10 @@ class SidebarProvider implements vscode.WebviewViewProvider {
         this.pendingMappingReviews.delete(panel);
         resolve(decisions);
       };
-      this.pendingMappingReviews.set(panel, { reviewId: review.reviewId, resolve: finish });
+      this.pendingMappingReviews.set(panel, {
+        reviewId: review.reviewId,
+        resolve: finish,
+      });
       panel.webview.postMessage({ type: "psdMappingReview", review });
     });
   }
@@ -2077,7 +2137,8 @@ class SidebarProvider implements vscode.WebviewViewProvider {
     if (mappingReviewOnly) {
       html = html.replace(
         "</head>",
-        () => "<script>window.__MAPPING_REVIEW_ONLY__ = true;</script>\n</head>",
+        () =>
+          "<script>window.__MAPPING_REVIEW_ONLY__ = true;</script>\n</head>",
       );
     }
 

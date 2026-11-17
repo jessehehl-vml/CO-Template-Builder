@@ -111,11 +111,8 @@ export class BannerReviewService {
     onProgress(`Using ${model.name}`);
 
     const { files, assets } = this.load(workspacePath);
-    const lintFindings = lintBanner(
-      files,
-      assets,
-      this.readSizes(workspacePath),
-    );
+    const sizes = this.readSizes(workspacePath);
+    const lintFindings = lintBanner(files, assets, sizes);
     onProgress(
       `Read ${files.length} files and ${assets.length} assets, ${lintFindings.length} found by the code checks`,
     );
@@ -123,6 +120,7 @@ export class BannerReviewService {
     const instructions = buildInstructions(
       this.loadRules(workspacePath),
       lintFindings,
+      sizes,
     );
     const budget = Math.max(
       model.maxInputTokens * CHARS_PER_TOKEN - instructions.length - 4000,
@@ -176,7 +174,15 @@ export class BannerReviewService {
       onProgress("Reading the results");
 
       return {
-        findings: parseFindings(text),
+        findings: parseFindings(text).filter(
+          // Per-size styling only matters with several sizes; !important still counts.
+          (finding) =>
+            sizes.length !== 1 ||
+            finding.rule !== "CSS-001" ||
+            /!important/i.test(
+              `${finding.message} ${finding.suggestion ?? ""}`,
+            ),
+        ),
         model: model.name,
         filesReviewed: files.length,
       };

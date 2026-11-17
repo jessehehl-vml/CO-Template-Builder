@@ -2894,7 +2894,8 @@ p.description {
   width: 48px;
   height: 48px;
   object-fit: contain;
-  background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 50% / 12px 12px;
+  background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 50% /
+    12px 12px;
 }
 
 .mapping-thumb img.is-recolored-white {

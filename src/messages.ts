@@ -70,6 +70,10 @@ export type WizardPanelMessage =
   | { type: "selectFolder" }
   | { type: "selectPSDFile" }
   | { type: "psdMappingReady" }
-  | { type: "psdMappingConfirmed"; reviewId: string; decisions: PsdMappingDecision[] }
+  | {
+      type: "psdMappingConfirmed";
+      reviewId: string;
+      decisions: PsdMappingDecision[];
+    }
   | { type: "psdMappingCancelled"; reviewId: string }
   | ({ type: "createBoilerplate" } & BoilerplateMessage);

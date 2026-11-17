@@ -167,10 +167,20 @@ test("PSD feed field names restrict which frames they can match", () => {
 test("PSD feed matching uses names, frame hints, pixels and one use per frame", () => {
   const { matches, scores } = matchFeedImages(
     [
-      { key: "1|name", layerName: "hero_image_f1-2_URL", frame: 1, summary: flat },
+      {
+        key: "1|name",
+        layerName: "hero_image_f1-2_URL",
+        frame: 1,
+        summary: flat,
+      },
       { key: "1|flat", layerName: "Rectangle 19", frame: 1, summary: flat },
       { key: "1|logo", layerName: "Aral_Logo", frame: 1, summary: blueLogo },
-      { key: "1|logo-copy", layerName: "Aral_Logo copy", frame: 1, summary: blueLogo },
+      {
+        key: "1|logo-copy",
+        layerName: "Aral_Logo copy",
+        frame: 1,
+        summary: blueLogo,
+      },
       { key: "2|photo", layerName: "f1img", frame: 2, summary: redGradient },
       { key: "4|photo", layerName: "f1img", frame: 4, summary: redGradient },
       { key: "4|card", layerName: "Card", frame: 4, summary: greenGradient },
@@ -184,7 +194,10 @@ test("PSD feed matching uses names, frame hints, pixels and one use per frame", 
 
   assert.deepEqual(
     matches
-      .map(({ key, placeholderName, method }) => `${key}=${placeholderName}:${method}`)
+      .map(
+        ({ key, placeholderName, method }) =>
+          `${key}=${placeholderName}:${method}`,
+      )
       .sort(),
     [
       "1|logo=logo_aral:pixels",
@@ -193,16 +206,19 @@ test("PSD feed matching uses names, frame hints, pixels and one use per frame", 
       "4|card=f4_product_image_URL:pixels",
     ],
   );
-  assert.equal(scores.find(({ key }) => key === "1|flat").skipped, "flat colour");
+  assert.equal(
+    scores.find(({ key }) => key === "1|flat").skipped,
+    "flat colour",
+  );
 });
 
 test("PSD layer summaries only use pixels inside the visible region", () => {
-  const summary = image(
-    100,
-    50,
-    (x, y) => [x, y, 0, x >= 50 ? 255 : 0],
-    { x: 0, y: 10, width: 80, height: 40 },
-  );
+  const summary = image(100, 50, (x, y) => [x, y, 0, x >= 50 ? 255 : 0], {
+    x: 0,
+    y: 10,
+    width: 80,
+    height: 40,
+  });
 
   assert.deepEqual(summary.trim, { x: 50, y: 10, width: 30, height: 40 });
   assert.equal(summary.opaqueRatio, 1);
@@ -224,10 +240,30 @@ test("PSD image boxes are trimmed where opaque layers above cover a full band", 
 test("PSD feed matching reuses same-named layers and pairs SVG feeds by frame and name", () => {
   const { matches } = matchFeedImages(
     [
-      { key: "1|logo", layerName: "Aral_Logo_RGB_negativ", frame: 1, summary: blueLogo },
-      { key: "2|logo", layerName: "Aral_Logo_RGB_negativ", frame: 2, summary: greenGradient },
-      { key: "3|text", layerName: "Aral Fleet Solutions", frame: 3, summary: redGradient },
-      { key: "3|icon", layerName: "ico_finance-accrue.png.img.750.medium", frame: 3, summary: greenGradient },
+      {
+        key: "1|logo",
+        layerName: "Aral_Logo_RGB_negativ",
+        frame: 1,
+        summary: blueLogo,
+      },
+      {
+        key: "2|logo",
+        layerName: "Aral_Logo_RGB_negativ",
+        frame: 2,
+        summary: greenGradient,
+      },
+      {
+        key: "3|text",
+        layerName: "Aral Fleet Solutions",
+        frame: 3,
+        summary: redGradient,
+      },
+      {
+        key: "3|icon",
+        layerName: "ico_finance-accrue.png.img.750.medium",
+        frame: 3,
+        summary: greenGradient,
+      },
     ],
     [
       { placeholderName: "logo_aral", summary: blueLogo },
@@ -236,7 +272,12 @@ test("PSD feed matching reuses same-named layers and pairs SVG feeds by frame an
   );
 
   assert.deepEqual(
-    matches.map(({ key, placeholderName, method }) => `${key}=${placeholderName}:${method}`).sort(),
+    matches
+      .map(
+        ({ key, placeholderName, method }) =>
+          `${key}=${placeholderName}:${method}`,
+      )
+      .sort(),
     [
       "1|logo=logo_aral:pixels",
       "2|logo=logo_aral:layer-name",
@@ -250,14 +291,29 @@ test("PSD feed images are matched in every size, not once per frame number", () 
     [
       { key: "300x250|1|2", layerName: "f1im", frame: 1, summary: redGradient },
       { key: "728x90|1|2", layerName: "f1im", frame: 1, summary: redGradient },
-      { key: "300x250|3|1", layerName: "ico_finance", frame: 3, summary: greenGradient },
-      { key: "728x90|3|2", layerName: "ico_finance", frame: 3, summary: greenGradient },
+      {
+        key: "300x250|3|1",
+        layerName: "ico_finance",
+        frame: 3,
+        summary: greenGradient,
+      },
+      {
+        key: "728x90|3|2",
+        layerName: "ico_finance",
+        frame: 3,
+        summary: greenGradient,
+      },
     ],
-    [{ placeholderName: "hero_image_f1-2_URL", summary: redGradient }, { placeholderName: "f3_icon_url" }],
+    [
+      { placeholderName: "hero_image_f1-2_URL", summary: redGradient },
+      { placeholderName: "f3_icon_url" },
+    ],
   );
 
   assert.deepEqual(
-    matches.map(({ key, placeholderName }) => `${key}=${placeholderName}`).sort(),
+    matches
+      .map(({ key, placeholderName }) => `${key}=${placeholderName}`)
+      .sort(),
     [
       "300x250|1|2=hero_image_f1-2_URL",
       "300x250|3|1=f3_icon_url",
@@ -272,8 +328,14 @@ test("PSD codegen removes model-drawn stand-ins for feed images", () => {
     '<div class="ad"><div class="card">ARAL Komfort Card</div><p class="card-txt">Aral Komfort Card. Built for small fleets.</p><div class="logo">ARAL</div><h1>Offer</h1></div>',
     ".card{position:absolute;top:50px;left:20px;width:150px;height:90px}.logo{position:absolute;right:12px;bottom:12px;width:36px;height:36px}",
     [
-      { box: { left: 250, top: 200, width: 40, height: 40 }, names: ["Aral_Logo_RGB_negativ", "logo_aral"] },
-      { box: { left: 10, top: 40, width: 120, height: 120 }, names: ["BP-and-Aral-FC-Card", "f4_product_image_URL"] },
+      {
+        box: { left: 250, top: 200, width: 40, height: 40 },
+        names: ["Aral_Logo_RGB_negativ", "logo_aral"],
+      },
+      {
+        box: { left: 10, top: 40, width: 120, height: 120 },
+        names: ["BP-and-Aral-FC-Card", "f4_product_image_URL"],
+      },
     ],
     300,
     250,
@@ -291,9 +353,21 @@ test("PSD frames share identical leading and trailing elements and keep the rest
     ".ad{position:relative;width:300px;height:250px;background:#05e;color:#fff}.photo{position:absolute;top:0;left:0;width:300px;height:150px}.logo{position:absolute;right:10px;bottom:10px;width:30px;height:30px}";
   const merged = mergeFrameLayouts(
     [
-      { frame: 1, html: '<div class="ad"><div class="photo"></div><h1 class="f1_headline"></h1><div class="logo"></div></div>', css },
-      { frame: 2, html: '<div class="ad"><div class="photo"></div><p class="f2_subheadline"></p><div class="logo"></div></div>', css },
-      { frame: 3, html: '<div class="ad"><h1 class="f3_headline"></h1><div class="logo"></div></div>', css },
+      {
+        frame: 1,
+        html: '<div class="ad"><div class="photo"></div><h1 class="f1_headline"></h1><div class="logo"></div></div>',
+        css,
+      },
+      {
+        frame: 2,
+        html: '<div class="ad"><div class="photo"></div><p class="f2_subheadline"></p><div class="logo"></div></div>',
+        css,
+      },
+      {
+        frame: 3,
+        html: '<div class="ad"><h1 class="f3_headline"></h1><div class="logo"></div></div>',
+        css,
+      },
     ],
     "#creative_container",
   );
@@ -311,28 +385,51 @@ test("PSD frames share identical leading and trailing elements and keep the rest
       '<div class="frame3" data-frames="3"><div class="ad"><h1 class="f3_headline"></h1></div></div>' +
       '<div class="shared_top"><div class="logo" data-frames="1 2 3"></div></div>',
   );
-  assert.match(merged.css, /\.shared_bottom \.bg \{position: absolute;[^}]*background: #05e/);
-  assert.match(merged.css, /\.frame1 \.ad\{position:relative;width:300px;height:250px;color:#fff\}/);
+  assert.match(
+    merged.css,
+    /\.shared_bottom \.bg \{position: absolute;[^}]*background: #05e/,
+  );
+  assert.match(
+    merged.css,
+    /\.frame1 \.ad\{position:relative;width:300px;height:250px;color:#fff\}/,
+  );
 });
 
 test("PSD frame elements between frame-specific content stay per frame", () => {
   const merged = mergeFrameLayouts(
     [
-      { frame: 1, html: '<div class="ad"><p class="intro">A</p><p class="brand">Brand</p><p class="x">1</p></div>', css: ".brand{top:10px}" },
-      { frame: 2, html: '<div class="ad"><p class="intro">B</p><p class="brand">Brand</p><p class="x">2</p></div>', css: ".brand{top:10px}" },
+      {
+        frame: 1,
+        html: '<div class="ad"><p class="intro">A</p><p class="brand">Brand</p><p class="x">1</p></div>',
+        css: ".brand{top:10px}",
+      },
+      {
+        frame: 2,
+        html: '<div class="ad"><p class="intro">B</p><p class="brand">Brand</p><p class="x">2</p></div>',
+        css: ".brand{top:10px}",
+      },
     ],
     "#creative_container",
   );
 
   assert.deepEqual(merged.shared, []);
-  assert.match(merged.html, /<div class="frame1" data-frames="1"><div class="ad"><p class="intro">A<\/p><p class="brand">Brand<\/p>/);
+  assert.match(
+    merged.html,
+    /<div class="frame1" data-frames="1"><div class="ad"><p class="intro">A<\/p><p class="brand">Brand<\/p>/,
+  );
 });
 
 test("PSD stand-in removal only applies to elements sharing a frame with the image", () => {
   const { removed } = removeElementsCoveringImages(
     '<div class="psd-ad"><div class="psd-panel" data-frames="3">Savings that add up today for everyone</div><div class="psd-photo" data-frames="1 2"></div></div>',
     ".psd-panel{position:absolute;left:0;top:0;width:300px;height:175px}.psd-photo{position:absolute;left:0;top:0;width:300px;height:175px}",
-    [{ box: { left: 0, top: 0, width: 300, height: 175 }, names: ["f1img"], frames: [1, 2] }],
+    [
+      {
+        box: { left: 0, top: 0, width: 300, height: 175 },
+        names: ["f1img"],
+        frames: [1, 2],
+      },
+    ],
     300,
     250,
   );

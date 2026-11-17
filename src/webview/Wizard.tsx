@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { parseFeed, type ParsedFeed } from "../feed";
-import { detectPsd2x, mapPsdDimensions, STANDARD_AD_DIMENSIONS } from "../dimensions";
+import {
+  detectPsd2x,
+  mapPsdDimensions,
+  STANDARD_AD_DIMENSIONS,
+} from "../dimensions";
 import type { PsdStoryboardPreview } from "../psd-analysis";
 declare global {
   interface Window {
@@ -132,7 +136,9 @@ export default function Wizard() {
     { width: string; height: string }[]
   >([]);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
-  const [mappingReview, setMappingReview] = useState<MappingReview | null>(null);
+  const [mappingReview, setMappingReview] = useState<MappingReview | null>(
+    null,
+  );
   const productRequestsLoaded = useRef<Set<string>>(new Set());
   useEffect(() => {
     vscode.postMessage({

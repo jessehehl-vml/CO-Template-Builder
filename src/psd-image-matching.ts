@@ -6,7 +6,12 @@ const ASPECT_PENALTY = 40;
 const UNIFORM_RANGE = 12;
 const STRONG_MATCH = 10;
 
-export type PixelRegion = { x: number; y: number; width: number; height: number };
+export type PixelRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 export type PixelSummary = {
   width: number;
@@ -92,7 +97,10 @@ export function summarizeRgba(
   const sums = new Array(GRID * GRID * 4).fill(0);
   const counts = new Array(GRID * GRID).fill(0);
   for (let y = trim.y; y <= maxY; y++) {
-    const row = Math.min(GRID - 1, Math.floor(((y - trim.y) * GRID) / trim.height));
+    const row = Math.min(
+      GRID - 1,
+      Math.floor(((y - trim.y) * GRID) / trim.height),
+    );
     for (let x = trim.x; x <= maxX; x++) {
       const column = Math.min(
         GRID - 1,
@@ -189,7 +197,8 @@ export function matchFeedImages(
     ]),
   );
   // Keys are "size|frame|index"; each artboard (size and frame) uses a feed image at most once.
-  const artboardOf = (layer: ImageLayerSource) => layer.key.split("|").slice(0, -1).join("|");
+  const artboardOf = (layer: ImageLayerSource) =>
+    layer.key.split("|").slice(0, -1).join("|");
   const assign = (layer: ImageLayerSource, match: FeedImageMatch) => {
     matches.push(match);
     matchedKeys.add(layer.key);
@@ -301,9 +310,18 @@ export function matchFeedImages(
         const named = open.filter((layer) =>
           sharesNameToken(placeholderName, layer.layerName),
         );
-        const layer = named.length === 1 ? named[0] : open.length === 1 ? open[0] : undefined;
+        const layer =
+          named.length === 1
+            ? named[0]
+            : open.length === 1
+              ? open[0]
+              : undefined;
         if (layer) {
-          assign(layer, { key: layer.key, placeholderName, method: "frame-hint" });
+          assign(layer, {
+            key: layer.key,
+            placeholderName,
+            method: "frame-hint",
+          });
         }
       }
     }
@@ -320,7 +338,10 @@ export function matchFeedImages(
     distances: layer.summary
       ? Object.fromEntries(
           feeds
-            .filter(({ placeholderName }) => references.get(placeholderName)!.length > 0)
+            .filter(
+              ({ placeholderName }) =>
+                references.get(placeholderName)!.length > 0,
+            )
             .map(({ placeholderName }) => [
               placeholderName,
               round(distanceTo(layer, placeholderName)),
@@ -352,16 +373,36 @@ export function cropOccludedEdges(rect: Rect, occluders: Rect[]): Rect {
       const oBottom = occluder.top + occluder.height;
       const spansWidth = occluder.left <= left && oRight >= right;
       const spansHeight = occluder.top <= top && oBottom >= bottom;
-      if (spansWidth && occluder.top <= top && oBottom > top && oBottom < bottom) {
+      if (
+        spansWidth &&
+        occluder.top <= top &&
+        oBottom > top &&
+        oBottom < bottom
+      ) {
         top = oBottom;
         changed = true;
-      } else if (spansWidth && oBottom >= bottom && occluder.top < bottom && occluder.top > top) {
+      } else if (
+        spansWidth &&
+        oBottom >= bottom &&
+        occluder.top < bottom &&
+        occluder.top > top
+      ) {
         bottom = occluder.top;
         changed = true;
-      } else if (spansHeight && occluder.left <= left && oRight > left && oRight < right) {
+      } else if (
+        spansHeight &&
+        occluder.left <= left &&
+        oRight > left &&
+        oRight < right
+      ) {
         left = oRight;
         changed = true;
-      } else if (spansHeight && oRight >= right && occluder.left < right && occluder.left > left) {
+      } else if (
+        spansHeight &&
+        oRight >= right &&
+        occluder.left < right &&
+        occluder.left > left
+      ) {
         right = occluder.left;
         changed = true;
       }
@@ -375,8 +416,13 @@ function normalizeName(value: string): string {
 }
 
 /** Descriptive class for a feed image element, e.g. "hero_image_f1-2_URL" -> "hero_img"; unique within `used`. */
-export function imageRoleClass(placeholderName: string, used: Set<string>): string {
-  const word = nameTokens(placeholderName).find((token) => /^[a-z]/.test(token));
+export function imageRoleClass(
+  placeholderName: string,
+  used: Set<string>,
+): string {
+  const word = nameTokens(placeholderName).find((token) =>
+    /^[a-z]/.test(token),
+  );
   const base = `${word ?? "feed"}_img`;
   let name = base;
   for (let index = 2; used.has(name); index++) {
@@ -386,7 +432,19 @@ export function imageRoleClass(placeholderName: string, used: Set<string>): stri
   return name;
 }
 
-const GENERIC_TOKENS = new Set(["url", "image", "img", "png", "jpg", "jpeg", "svg", "copy", "layer", "psd", "and"]);
+const GENERIC_TOKENS = new Set([
+  "url",
+  "image",
+  "img",
+  "png",
+  "jpg",
+  "jpeg",
+  "svg",
+  "copy",
+  "layer",
+  "psd",
+  "and",
+]);
 
 function nameTokens(value: string): string[] {
   return value

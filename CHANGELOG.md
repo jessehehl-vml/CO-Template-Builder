@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.13
+
+### Changed
+
+- The preview can be opened in several VS Code windows at the same time. Each window uses its own port (3001, 3002, …).
+- The AI code review is told whether the banner has one size or several. In single-size banners, CSS-001 only reports `!important`.
+
+### Fixed
+
+- An error is shown when the preview server or browser cannot be opened, instead of failing silently.
+- Variant test (RUN-002) no longer reports text that is parked fully outside the banner while waiting to animate in. Animations started outside `mainTimeline` are finished before measuring.
+- Code review (ANI-003) recognises frame timelines and `frameN-preview` labels added in a loop, and no longer reports a frame that uses another timeline name (e.g. `frameEndTimeline`).
+
 ## 0.0.12
 
 ### Fixed

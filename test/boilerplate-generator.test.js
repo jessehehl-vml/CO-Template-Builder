@@ -479,7 +479,9 @@ test("PSD frame timelines show elements by data-frames using configured duration
   assert.match(script, /frame1Timeline\.duration\(2\)/);
   assert.match(script, /frame3Timeline\.duration\(4\)/);
   assert.match(script, /mainTimeline\.add\(frame2Timeline, "-=0\.25"\)/);
-  assert.doesNotThrow(() => new Function(script.replace("Creative.start();", "")));
+  assert.doesNotThrow(
+    () => new Function(script.replace("Creative.start();", "")),
+  );
 });
 
 test("generate rejects frame durations with a total over 15 seconds", () => {
@@ -659,7 +661,10 @@ test("PSD text placeholders are filled from the feed even when general autofill 
   );
 
   const script = readGeneratedFile(folder, "script.js");
-  assert.match(script, /\$\("\.f1_headline"\)\.html\(content\?\.f1_headline\?\.value\);/);
+  assert.match(
+    script,
+    /\$\("\.f1_headline"\)\.html\(content\?\.f1_headline\?\.value\);/,
+  );
   assert.doesNotMatch(script, /\.legal"\)/);
 });
 
@@ -674,7 +679,15 @@ test("PSD list placeholders fill their folder and turn on autoscale", () => {
       placeholderVariants: [
         {
           dimensions: [
-            { placeholders: [{ name: "cta_selection", type: "text", value: "[1-5] [6-49] [50+]" }] },
+            {
+              placeholders: [
+                {
+                  name: "cta_selection",
+                  type: "text",
+                  value: "[1-5] [6-49] [50+]",
+                },
+              ],
+            },
           ],
         },
       ],
@@ -690,10 +703,16 @@ test("PSD list placeholders fill their folder and turn on autoscale", () => {
   );
 
   const script = readGeneratedFile(folder, "script.js");
-  assert.match(script, /fillList\("\.cta_selection", content\?\.cta_selection\?\.value\);/);
+  assert.match(
+    script,
+    /fillList\("\.cta_selection", content\?\.cta_selection\?\.value\);/,
+  );
   assert.match(script, /function fillList\(selector, value\)/);
   assert.match(script, /await Creative\.autoScaleFont\(\);/);
-  assert.match(readGeneratedFile(folder, "Creative.js"), /const scaleGroup = \(group\) =>/);
+  assert.match(
+    readGeneratedFile(folder, "Creative.js"),
+    /const scaleGroup = \(group\) =>/,
+  );
 });
 
 test("generate maps collection products and limits unique items", () => {

@@ -136,10 +136,16 @@ function parseClassRules(css: string): ClassRule[] {
       declarations[declaration.prop.toLowerCase()] = declaration.value.trim();
     });
     for (const selector of rule.selectors) {
-      const last = selector.trim().split(/[\s>+~]+/).pop() ?? "";
+      const last =
+        selector
+          .trim()
+          .split(/[\s>+~]+/)
+          .pop() ?? "";
       if (/^(?:\.[A-Za-z0-9_-]+)+$/.test(last)) {
         rules.push({
-          classes: [...last.matchAll(/\.([A-Za-z0-9_-]+)/g)].map(([, name]) => name),
+          classes: [...last.matchAll(/\.([A-Za-z0-9_-]+)/g)].map(
+            ([, name]) => name,
+          ),
           declarations,
         });
       }
@@ -152,7 +158,10 @@ function styleOf(node: any, rules: ClassRule[]): Record<string, string> {
   const classes = classesOfNode(node);
   const style: Record<string, string> = {};
   for (const rule of rules) {
-    if (classes.length > 0 && rule.classes.every((name) => classes.includes(name))) {
+    if (
+      classes.length > 0 &&
+      rule.classes.every((name) => classes.includes(name))
+    ) {
       Object.assign(style, rule.declarations);
     }
   }
@@ -160,7 +169,9 @@ function styleOf(node: any, rules: ClassRule[]): Record<string, string> {
 }
 
 function classesOfNode(node: any): string[] {
-  return String(node.attrs?.find(({ name }: any) => name === "class")?.value ?? "")
+  return String(
+    node.attrs?.find(({ name }: any) => name === "class")?.value ?? "",
+  )
     .split(/\s+/)
     .filter(Boolean);
 }
@@ -195,14 +206,22 @@ export function removeElementsCoveringImages(
     if (!node.tagName || classes.length === 0) {
       return true;
     }
-    const box = getAbsoluteBox(styleOf(node, rules), artboardWidth, artboardHeight);
-    const frameText = node.attrs?.find(({ name }: any) => name === "data-frames")?.value;
+    const box = getAbsoluteBox(
+      styleOf(node, rules),
+      artboardWidth,
+      artboardHeight,
+    );
+    const frameText = node.attrs?.find(
+      ({ name }: any) => name === "data-frames",
+    )?.value;
     const nodeFrames = frameText
       ? new Set(String(frameText).split(/\s+/).map(Number))
       : undefined;
     const sameFrames = images.filter(
       (image) =>
-        !nodeFrames || !image.frames || image.frames.some((frame) => nodeFrames.has(frame)),
+        !nodeFrames ||
+        !image.frames ||
+        image.frames.some((frame) => nodeFrames.has(frame)),
     );
     const covers =
       box !== undefined &&
@@ -275,7 +294,8 @@ export function bindPsdTextFields(
     elements.filter(({ node }) => classesOf(node).includes(name)).length;
   for (const { text, placeholderName } of bindings) {
     let target = elements.find(
-      ({ node }) => !used.has(node) && classesOf(node).includes(placeholderName),
+      ({ node }) =>
+        !used.has(node) && classesOf(node).includes(placeholderName),
     )?.node;
     if (!target) {
       target = elements
@@ -286,7 +306,9 @@ export function bindPsdTextFields(
           similarity: textSimilarity(textContent(node), text),
         }))
         .filter(({ similarity }) => similarity >= minSimilarity)
-        .sort((a, b) => b.similarity - a.similarity || b.depth - a.depth)[0]?.node;
+        .sort(
+          (a, b) => b.similarity - a.similarity || b.depth - a.depth,
+        )[0]?.node;
     }
     if (!target) {
       continue;
@@ -315,7 +337,11 @@ export function bindPsdTextFields(
     bound.push(placeholderName);
   }
 
-  return { html: bound.length > 0 ? serialize(fragment) : html, bound, renames };
+  return {
+    html: bound.length > 0 ? serialize(fragment) : html,
+    bound,
+    renames,
+  };
 }
 
 export type PsdTextBox = {
@@ -344,7 +370,12 @@ export function positionPsdTexts(
   const fragment = parseFragment(html) as any;
   const tops = fragment.childNodes.filter((node: any) => node.tagName);
   if (tops.length !== 1 || texts.length === 0) {
-    return { html, css: "", placed: [], skipped: texts.map(({ text }) => text) };
+    return {
+      html,
+      css: "",
+      placed: [],
+      skipped: texts.map(({ text }) => text),
+    };
   }
   const root = tops[0];
   const rules = parseClassRules(css);
@@ -375,14 +406,20 @@ export function positionPsdTexts(
         similarity: textSimilarity(textContent(node), text),
       }))
       .filter(({ similarity }) => similarity >= minSimilarity)
-      .sort((a, b) => b.similarity - a.similarity || b.depth - a.depth)[0]?.node;
+      .sort(
+        (a, b) => b.similarity - a.similarity || b.depth - a.depth,
+      )[0]?.node;
     if (!target) {
       skipped.push(text);
       continue;
     }
 
     const positioned: any[] = [];
-    for (let parent = target.parentNode; parent && parent !== root; parent = parent.parentNode) {
+    for (
+      let parent = target.parentNode;
+      parent && parent !== root;
+      parent = parent.parentNode
+    ) {
       if (POSITIONED.has(styleOf(parent, rules).position ?? "")) {
         positioned.push(parent);
       }
@@ -406,14 +443,19 @@ export function positionPsdTexts(
     }
 
     used.add(target);
-    let className = classesOfNode(target).find((name) => classCount(name) === 1);
+    let className = classesOfNode(target).find(
+      (name) => classCount(name) === 1,
+    );
     if (!className) {
       do {
         className = `text_${++generated}`;
       } while (classCount(className) > 0);
       target.attrs = [
         ...(target.attrs ?? []).filter(({ name }: any) => name !== "class"),
-        { name: "class", value: [...classesOfNode(target), className].join(" ") },
+        {
+          name: "class",
+          value: [...classesOfNode(target), className].join(" "),
+        },
       ];
     }
 
@@ -439,7 +481,9 @@ export function positionPsdTexts(
       ...(fontSize ? [`font-size: ${fontSize}px`] : []),
       ...(align ? [`text-align: ${align}`] : []),
     ];
-    output.push(`${target.tagName}.${className} { ${declarations.join("; ")}; }`);
+    output.push(
+      `${target.tagName}.${className} { ${declarations.join("; ")}; }`,
+    );
     placed.push(`.${className} \u2190 ${JSON.stringify(text.slice(0, 40))}`);
   }
 
@@ -462,7 +506,10 @@ export function renameCssClasses(
     rule.selector = renames.reduce(
       (selector, { from, to }) =>
         selector.replace(
-          new RegExp(`\\.${from.replace(/[-\\^$*+?.()|[\]{}]/g, "\\$&")}(?![\\w-])`, "g"),
+          new RegExp(
+            `\\.${from.replace(/[-\\^$*+?.()|[\]{}]/g, "\\$&")}(?![\\w-])`,
+            "g",
+          ),
           `.${to}`,
         ),
       rule.selector,
@@ -497,11 +544,19 @@ function getAbsoluteBox(
     (top !== undefined && bottom !== undefined
       ? artboardHeight - top - bottom
       : undefined);
-  if (width === undefined || height === undefined || width <= 0 || height <= 0) {
+  if (
+    width === undefined ||
+    height === undefined ||
+    width <= 0 ||
+    height <= 0
+  ) {
     return undefined;
   }
-  const x = left ?? (right !== undefined ? artboardWidth - right - width : undefined);
-  const y = top ?? (bottom !== undefined ? artboardHeight - bottom - height : undefined);
+  const x =
+    left ?? (right !== undefined ? artboardWidth - right - width : undefined);
+  const y =
+    top ??
+    (bottom !== undefined ? artboardHeight - bottom - height : undefined);
   return x === undefined || y === undefined
     ? undefined
     : { left: x, top: y, width, height };
@@ -509,13 +564,17 @@ function getAbsoluteBox(
 
 /** Intersection over union of two boxes. */
 function overlapRatio(a: Box, b: Box): number {
-  const width = Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
-  const height = Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
+  const width =
+    Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
+  const height =
+    Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
   if (width <= 0 || height <= 0) {
     return 0;
   }
   const intersection = width * height;
-  return intersection / (a.width * a.height + b.width * b.height - intersection);
+  return (
+    intersection / (a.width * a.height + b.width * b.height - intersection)
+  );
 }
 
 export function getPsdCanvasScale(
@@ -588,7 +647,8 @@ export function scalePsdCss(source: string, scale: number): string {
   root.walkDecls((declaration) => {
     declaration.value = declaration.value.replace(
       /(-?(?:\d+|\d*\.\d+))px\b/gi,
-      (_match, value: string) => `${Number((Number(value) * scale).toFixed(4))}px`,
+      (_match, value: string) =>
+        `${Number((Number(value) * scale).toFixed(4))}px`,
     );
   });
   return root.toString();

@@ -4,7 +4,9 @@ import * as path from "path";
 import * as http from "http";
 import { randomBytes } from "crypto";
 
-const PORT = 3001;
+// Each VS Code window runs its own server: the first takes 3001, the next ones a following free port.
+const FIRST_PORT = 3001;
+const PORT_ATTEMPTS = 20;
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -85,6 +87,7 @@ const STORYBOARD_EXTENSIONS = new Set([
 
 export class PreviewServer implements vscode.Disposable {
   private server: http.Server | null = null;
+  private port = FIRST_PORT;
   private readonly clients = new Set<http.ServerResponse>();
   private readonly qaToken = randomBytes(16).toString("hex");
 
@@ -100,23 +103,44 @@ export class PreviewServer implements vscode.Disposable {
   ) {}
 
   open() {
-    if (this.server) {
+    if (this.server?.listening) {
       this.openBrowser();
+      return;
+    }
+
+    if (this.server) {
+      // Still starting; it opens the browser once it listens.
       return;
     }
 
     const server = http.createServer((req, res) => this.handle(req, res));
     this.server = server;
 
-    server.on("error", (error) => {
-      console.error("[PREVIEW] Server error:", error);
+    const listen = (port: number) => {
+      server.once("error", (error: NodeJS.ErrnoException) => {
+        if (error.code === "EADDRINUSE" && port < FIRST_PORT + PORT_ATTEMPTS - 1) {
+          listen(port + 1);
+          return;
+        }
 
-      if (this.server === server) {
-        this.server = null;
-      }
-    });
+        console.error("[PREVIEW] Server error:", error);
+        if (this.server === server) {
+          this.server = null;
+        }
+        void vscode.window.showErrorMessage(
+          error.code === "EADDRINUSE"
+            ? `Could not open the preview: ports ${FIRST_PORT}-${FIRST_PORT + PORT_ATTEMPTS - 1} are all in use.`
+            : `Could not open the preview: ${error.message}`,
+        );
+      });
+      server.listen(port, "127.0.0.1", () => {
+        this.port = port;
+        server.on("error", (error) => console.error("[PREVIEW] Server error:", error));
+        this.openBrowser();
+      });
+    };
 
-    server.listen(PORT, "127.0.0.1", () => this.openBrowser());
+    listen(FIRST_PORT);
   }
 
   dispose() {
@@ -131,7 +155,19 @@ export class PreviewServer implements vscode.Disposable {
   }
 
   private openBrowser() {
-    vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${PORT}`));
+    const url = `http://localhost:${this.port}`;
+    void vscode.env.openExternal(vscode.Uri.parse(url)).then(
+      (opened) => {
+        if (!opened) {
+          void vscode.window.showErrorMessage(`Could not open the preview in your browser. Open ${url} manually.`);
+        }
+      },
+      (error: unknown) => {
+        void vscode.window.showErrorMessage(
+          `Could not open the preview in your browser (${error instanceof Error ? error.message : String(error)}). Open ${url} manually.`,
+        );
+      },
+    );
   }
 
   private handle(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -191,7 +227,7 @@ export class PreviewServer implements vscode.Disposable {
     lintOnly: boolean,
   ) {
     // The token and host checks stop other web pages from spending Copilot quota.
-    const allowedHosts = [`localhost:${PORT}`, `127.0.0.1:${PORT}`];
+    const allowedHosts = [`localhost:${this.port}`, `127.0.0.1:${this.port}`];
     const origin = req.headers.origin;
 
     if (

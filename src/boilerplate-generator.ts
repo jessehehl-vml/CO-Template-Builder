@@ -134,9 +134,7 @@ export class BoilerplateGenerator {
         throw new Error("PSD source data is required to generate storyboards.");
       }
       if (!psdCreative) {
-        throw new Error(
-          "Generated PSD HTML/CSS is required for PSD projects.",
-        );
+        throw new Error("Generated PSD HTML/CSS is required for PSD projects.");
       }
       writePsdStoryboardImages(
         psdBuffer,
@@ -159,7 +157,9 @@ export class BoilerplateGenerator {
     const templates = this.loadTemplates();
     // Feed lists rely on autoscale to keep their labels inside the PSD's row.
     const generated = this.buildGeneratedFiles(
-      psdCreative?.listPlaceholders?.length ? { ...message, autoScaleFonts: true } : message,
+      psdCreative?.listPlaceholders?.length
+        ? { ...message, autoScaleFonts: true }
+        : message,
       templates,
       psdCreative,
     );
@@ -412,7 +412,9 @@ export class BoilerplateGenerator {
         message.motionPathPlugin,
         psdCreative?.html,
       ),
-      script: psdCreative?.listPlaceholders?.length ? `${script}\n${LIST_HELPER_CODE}` : script,
+      script: psdCreative?.listPlaceholders?.length
+        ? `${script}\n${LIST_HELPER_CODE}`
+        : script,
       styles: this.buildStyles(
         templates.styles,
         message.selectedFonts,
@@ -638,14 +640,16 @@ ${Array.from({ length: frameCount }, (_, index) => {
     const enters =
       !frameSets ||
       frameSets.some(
-        (frames) => frames.includes(frameNumber) && !frames.includes(frameNumber - 1),
+        (frames) =>
+          frames.includes(frameNumber) && !frames.includes(frameNumber - 1),
       );
     const leaves =
       frameNumber < frameCount &&
       fadeOut > 0 &&
       (!frameSets ||
         frameSets.some(
-          (frames) => frames.includes(frameNumber) && !frames.includes(frameNumber + 1),
+          (frames) =>
+            frames.includes(frameNumber) && !frames.includes(frameNumber + 1),
         ));
     const enterSelector =
       frameNumber === 1
@@ -653,7 +657,8 @@ ${Array.from({ length: frameCount }, (_, index) => {
         : `#creative_container ${inFrame}:not([data-frames~="${frameNumber - 1}"])`;
     const leaveSelector = `#creative_container ${inFrame}:not([data-frames~="${frameNumber + 1}"])`;
     // QA previews the frame's final state, just before it starts fading out.
-    const previewReady = Math.round(Math.max(fadeIn, duration - fadeOut - 0.05) * 1000) / 1000;
+    const previewReady =
+      Math.round(Math.max(fadeIn, duration - fadeOut - 0.05) * 1000) / 1000;
 
     return [
       `  ${timeline}.to({}, { duration: ${duration} }, 0);`,
@@ -677,7 +682,10 @@ ${Array.from({ length: frameCount }, (_, index) => {
     psdListPlaceholders: string[] = [],
   ): string {
     const psdImagePlaceholderSet = new Set(psdImagePlaceholders);
-    const psdTextPlaceholderSet = new Set([...psdTextPlaceholders, ...psdListPlaceholders]);
+    const psdTextPlaceholderSet = new Set([
+      ...psdTextPlaceholders,
+      ...psdListPlaceholders,
+    ]);
     const psdListPlaceholderSet = new Set(psdListPlaceholders);
     if (
       !message.autoFillPlaceholderContent &&
@@ -700,7 +708,9 @@ ${Array.from({ length: frameCount }, (_, index) => {
           const isImage = ["image", "img", "image-url"].includes(type);
           if (
             !message.autoFillPlaceholderContent &&
-            !(isImage ? psdImagePlaceholderSet : psdTextPlaceholderSet).has(name)
+            !(isImage ? psdImagePlaceholderSet : psdTextPlaceholderSet).has(
+              name,
+            )
           ) {
             continue;
           }

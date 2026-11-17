@@ -15,7 +15,10 @@ import {
   type FeedImageMatch,
   type PixelSummary,
 } from "./psd-image-matching";
-import { matchFeedTextByProfile, type FeedTextField } from "./psd-text-matching";
+import {
+  matchFeedTextByProfile,
+  type FeedTextField,
+} from "./psd-text-matching";
 import { mergeFrameLayouts } from "./psd-frame-merge";
 import {
   NO_FEED_IMAGE,
@@ -52,7 +55,11 @@ export type PsdGeneratedCreative = {
 
 export type { FeedTextField };
 
-export type PsdFontVariable = { variable: string; family: string; variant?: string };
+export type PsdFontVariable = {
+  variable: string;
+  family: string;
+  variant?: string;
+};
 
 type Rect = { left: number; top: number; width: number; height: number };
 
@@ -191,24 +198,32 @@ export function preparePsdCreative(
   const { artboards, summaries, pixels } = extractPsdLayerData(buffer, is2x);
   artboards.sort((a, b) => a.frame - b.frame || a.size.localeCompare(b.size));
   alignSameNamedImageBoxes(artboards, summaries, log);
-  log?.(`Artboards and PSD image layers: ${JSON.stringify(artboards.map(({ size, frame, layers }) => ({ size, frame, imageLayers: layers.filter(({ type }) => type === "image").map(({ name }) => name) })))}`);
+  log?.(
+    `Artboards and PSD image layers: ${JSON.stringify(artboards.map(({ size, frame, layers }) => ({ size, frame, imageLayers: layers.filter(({ type }) => type === "image").map(({ name }) => name) })))}`,
+  );
   const { matches, feeds } = matchArtboardFeedImages(
     artboards,
     summaries,
     feedImageCandidates,
     log,
   );
-  const { bindings: textBindings, methods: textMethods } = matchArtboardFeedText(artboards, feedTextFields, log);
+  const { bindings: textBindings, methods: textMethods } =
+    matchArtboardFeedText(artboards, feedTextFields, log);
 
   const imageMatches = new Map(matches.map((match) => [match.key, match]));
   // Colour of each all-SVG feed field (undefined when it uses several colours).
   const svgInks = new Map(
     feedImageCandidates
       .filter(({ allSvg }) => allSvg)
-      .map(({ placeholderName, data }) => [placeholderName, svgInkColor(data.toString("utf8"))] as const),
+      .map(
+        ({ placeholderName, data }) =>
+          [placeholderName, svgInkColor(data.toString("utf8"))] as const,
+      ),
   );
   if (svgInks.size > 0) {
-    log?.(`SVG feed colours: ${JSON.stringify([...svgInks].map(([field, ink]) => ({ field, ink: ink ?? "several colours" })))}`);
+    log?.(
+      `SVG feed colours: ${JSON.stringify([...svgInks].map(([field, ink]) => ({ field, ink: ink ?? "several colours" })))}`,
+    );
   }
   const review: PsdMappingReview = {
     reviewId: `${Date.now()}`,
@@ -229,51 +244,63 @@ export function preparePsdCreative(
         previewDataUrl: preview?.previewDataUrl ?? "",
         layers: [
           ...artboard.layers.flatMap((layer, index): PsdMappingLayer[] => {
-          const key = `${artboardKey}|${index}`;
-          const visual = summaries.get(key);
-          if (layer.type === "image" && visual && !isSolidFill(visual.summary) && layer.clipImage === undefined) {
-            const match = imageMatches.get(key);
-            const recolor = svgRecolors(pixels.get(key), svgInks);
-            return [
-              {
-                key,
-                kind: "image",
-                name: layer.name,
-                box: visual.rect,
-                field: match?.placeholderName ?? null,
-                method: match?.method,
-                ...(Object.keys(recolor).length > 0 ? { recolor } : {}),
-              },
-            ];
-          }
-          if (layer.type === "text" && layer.text?.trim()) {
-            const field =
-              bindings.find(({ text }) => text === layer.text)?.placeholderName ?? null;
-            return [
-              {
-                key,
-                kind: "text",
-                name: layer.name,
-                text: layer.text.trim(),
-                box: layer.bounds,
-                field,
-                method: field ? textMethods.get(key) ?? "copy" : undefined,
-                parent: layer.parent && { ...layer.parent, key: `${artboardKey}|f${layer.parentFolder}` },
-              },
-            ];
-          }
-          return [];
+            const key = `${artboardKey}|${index}`;
+            const visual = summaries.get(key);
+            if (
+              layer.type === "image" &&
+              visual &&
+              !isSolidFill(visual.summary) &&
+              layer.clipImage === undefined
+            ) {
+              const match = imageMatches.get(key);
+              const recolor = svgRecolors(pixels.get(key), svgInks);
+              return [
+                {
+                  key,
+                  kind: "image",
+                  name: layer.name,
+                  box: visual.rect,
+                  field: match?.placeholderName ?? null,
+                  method: match?.method,
+                  ...(Object.keys(recolor).length > 0 ? { recolor } : {}),
+                },
+              ];
+            }
+            if (layer.type === "text" && layer.text?.trim()) {
+              const field =
+                bindings.find(({ text }) => text === layer.text)
+                  ?.placeholderName ?? null;
+              return [
+                {
+                  key,
+                  kind: "text",
+                  name: layer.name,
+                  text: layer.text.trim(),
+                  box: layer.bounds,
+                  field,
+                  method: field ? (textMethods.get(key) ?? "copy") : undefined,
+                  parent: layer.parent && {
+                    ...layer.parent,
+                    key: `${artboardKey}|f${layer.parentFolder}`,
+                  },
+                },
+              ];
+            }
+            return [];
           }),
           ...artboard.folders.flatMap((folder, index): PsdMappingLayer[] => {
             if (!folder.listLabels || !folder.box) {
               return [];
             }
-            const labels = folder.listLabels.map((label) => artboard.layers[label].text!.trim());
+            const labels = folder.listLabels.map((label) =>
+              artboard.layers[label].text!.trim(),
+            );
             // Propose a feed field whose value has as many [items] as the folder has labels.
             const field =
               feedTextFields.find(
                 ({ placeholderName, value }) =>
-                  isCopyField(placeholderName) && parseListValue(value).length === labels.length,
+                  isCopyField(placeholderName) &&
+                  parseListValue(value).length === labels.length,
               )?.placeholderName ?? null;
             return [
               {
@@ -284,7 +311,9 @@ export function preparePsdCreative(
                 box: folder.box,
                 field,
                 method: field ? "list" : undefined,
-                children: folder.listLabels.map((label) => `${artboardKey}|${label}`),
+                children: folder.listLabels.map(
+                  (label) => `${artboardKey}|${label}`,
+                ),
               },
             ];
           }),
@@ -301,7 +330,11 @@ export function preparePsdCreative(
       .filter(({ placeholderName }) => isCopyField(placeholderName))
       .map(({ placeholderName, value }) => ({
         field: placeholderName,
-        sample: value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160),
+        sample: value
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 160),
       })),
   };
 
@@ -318,15 +351,23 @@ export function finishPsdCreative(
   const textBindings = new Map<string, FeedTextBinding[]>();
   const hidden = new Set<string>();
   const centered = new Set(
-    decisions.filter(({ centerInParent }) => centerInParent).map(({ key }) => key),
+    decisions
+      .filter(({ centerInParent }) => centerInParent)
+      .map(({ key }) => key),
   );
   // Centring applies to a folder: all its texts move together.
   for (const key of [...centered]) {
     const [size, frame, index] = key.split("|");
-    const artboard = draft.artboards.find((item) => item.size === size && item.frame === Number(frame));
+    const artboard = draft.artboards.find(
+      (item) => item.size === size && item.frame === Number(frame),
+    );
     const folder = artboard?.layers[Number(index)]?.parentFolder;
     artboard?.layers.forEach((layer, other) => {
-      if (folder !== undefined && layer.type === "text" && layer.parentFolder === folder) {
+      if (
+        folder !== undefined &&
+        layer.type === "text" &&
+        layer.parentFolder === folder
+      ) {
         centered.add(`${size}|${frame}|${other}`);
       }
     });
@@ -344,7 +385,13 @@ export function finishPsdCreative(
     const [size, frame, index] = key.split("|");
     const artboardKey = `${size}|${frame}`;
     if (index.startsWith("f")) {
-      lists.set(artboardKey, (lists.get(artboardKey) ?? new Map()).set(Number(index.slice(1)), field));
+      lists.set(
+        artboardKey,
+        (lists.get(artboardKey) ?? new Map()).set(
+          Number(index.slice(1)),
+          field,
+        ),
+      );
       continue;
     }
     const artboard = draft.artboards.find(
@@ -357,7 +404,10 @@ export function finishPsdCreative(
     if (layer.type === "image") {
       placements.set(artboardKey, [
         ...(placements.get(artboardKey) ?? []),
-        { ...createPlacement(key, field, layer, draft.summaries, draft.feeds), recolor: recolor ?? undefined },
+        {
+          ...createPlacement(key, field, layer, draft.summaries, draft.feeds),
+          recolor: recolor ?? undefined,
+        },
       ]);
     } else if (layer.type === "text" && layer.text) {
       textBindings.set(artboardKey, [
@@ -366,13 +416,31 @@ export function finishPsdCreative(
       ]);
     }
   }
-  log?.(`Reviewed mapping: ${JSON.stringify(decisions.filter(({ field }) => field))}`);
+  log?.(
+    `Reviewed mapping: ${JSON.stringify(decisions.filter(({ field }) => field))}`,
+  );
 
-  const creative = buildGeneratedCreative(draft, placements, textBindings, hidden, centered, lists, log);
-  log?.(`Final image placeholders: ${JSON.stringify(creative.imagePlaceholders)}`);
-  log?.(`Final text placeholders: ${JSON.stringify(creative.textPlaceholders)}`);
-  log?.(`Final list placeholders: ${JSON.stringify(creative.listPlaceholders)}`);
-  log?.(`Exported PSD artwork: ${JSON.stringify(creative.assets.map(({ fileName }) => fileName))}`);
+  const creative = buildGeneratedCreative(
+    draft,
+    placements,
+    textBindings,
+    hidden,
+    centered,
+    lists,
+    log,
+  );
+  log?.(
+    `Final image placeholders: ${JSON.stringify(creative.imagePlaceholders)}`,
+  );
+  log?.(
+    `Final text placeholders: ${JSON.stringify(creative.textPlaceholders)}`,
+  );
+  log?.(
+    `Final list placeholders: ${JSON.stringify(creative.listPlaceholders)}`,
+  );
+  log?.(
+    `Exported PSD artwork: ${JSON.stringify(creative.assets.map(({ fileName }) => fileName))}`,
+  );
   return creative;
 }
 
@@ -428,7 +496,9 @@ export function extractPsdLayerData(
           continue;
         }
         if (layer.children?.length) {
-          groupNames.push(layer.name?.trim() || `Folder ${groupNames.length + 1}`);
+          groupNames.push(
+            layer.name?.trim() || `Folder ${groupNames.length + 1}`,
+          );
           collectLayers(layer.children, [...groupPath, groupNames.length - 1]);
           clipBase = undefined;
           continue;
@@ -501,7 +571,12 @@ export function extractPsdLayerData(
           opacity,
         };
         const stroke = layer.vectorStroke;
-        if (stroke && !stroke.fillEnabled && !stroke.strokeEnabled && !hasVisibleEffects(layer)) {
+        if (
+          stroke &&
+          !stroke.fillEnabled &&
+          !stroke.strokeEnabled &&
+          !hasVisibleEffects(layer)
+        ) {
           layers.push(spacer);
           continue;
         }
@@ -528,7 +603,11 @@ export function extractPsdLayerData(
         if (layer.imageData) {
           const { data, width, height } = layer.imageData;
           const maxValue =
-            data instanceof Uint16Array ? 65535 : data instanceof Float32Array ? 1 : 255;
+            data instanceof Uint16Array
+              ? 65535
+              : data instanceof Float32Array
+                ? 1
+                : 255;
           const summary = visible
             ? summarizeRgba(data, width, height, maxValue, {
                 x: visible.left - bounds.left,
@@ -537,7 +616,11 @@ export function extractPsdLayerData(
                 height: visible.bottom - visible.top,
               })
             : undefined;
-          if (visible && (!summary || summary.opaqueRatio === 0) && !hasVisibleEffects(layer)) {
+          if (
+            visible &&
+            (!summary || summary.opaqueRatio === 0) &&
+            !hasVisibleEffects(layer)
+          ) {
             layers.push(spacer);
             continue;
           }
@@ -586,8 +669,11 @@ export function extractPsdLayerData(
     };
 
     collectLayers(root.children, []);
-    const folders = assignTextParents(layers, layerGroups, groupNames, (index) =>
-      summaries.get(`${size}|${geometry.frame}|${index}`)?.artRect,
+    const folders = assignTextParents(
+      layers,
+      layerGroups,
+      groupNames,
+      (index) => summaries.get(`${size}|${geometry.frame}|${index}`)?.artRect,
     );
     layers.forEach((layer, index) => {
       layer.folders = layerGroups[index] ?? [];
@@ -603,7 +689,9 @@ export function extractPsdLayerData(
         .map(({ rect }) => toCreativeRect(rect));
       visual.rect = cropOccludedEdges(visual.rect, above);
     });
-    linkClippedImages(layers, (index) => summaries.get(`${size}|${geometry.frame}|${index}`));
+    linkClippedImages(layers, (index) =>
+      summaries.get(`${size}|${geometry.frame}|${index}`),
+    );
     return {
       ...geometry,
       size,
@@ -636,7 +724,8 @@ function linkClippedImages(
       return;
     }
     const imageVisual = visualAt(index + 1);
-    const baseRect = base.type === "image" ? visualAt(index)?.artRect : base.bounds;
+    const baseRect =
+      base.type === "image" ? visualAt(index)?.artRect : base.bounds;
     if (!imageVisual || !baseRect) {
       return;
     }
@@ -651,7 +740,10 @@ function linkClippedImages(
  * Marks folders of repeated items, such as a row of buttons: each item is a sub-folder with exactly one
  * text, or a shape/image directly in the folder with exactly one text on it.
  */
-function detectListFolders(layers: PsdCodegenLayer[], folders: PsdFolder[]): void {
+function detectListFolders(
+  layers: PsdCodegenLayer[],
+  folders: PsdFolder[],
+): void {
   const contains = (outer: Rect, inner: Rect) =>
     inner.left >= outer.left - 1 &&
     inner.top >= outer.top - 1 &&
@@ -689,19 +781,29 @@ function detectListFolders(layers: PsdCodegenLayer[], folders: PsdFolder[]): voi
     const texts = direct.filter((index) => layers[index].type === "text");
     const shapes = direct.filter((index) => layers[index].type !== "text");
     for (const shape of shapes) {
-      if (texts.filter((text) => contains(layers[shape].bounds, layers[text].bounds)).length !== 1) {
+      if (
+        texts.filter((text) =>
+          contains(layers[shape].bounds, layers[text].bounds),
+        ).length !== 1
+      ) {
         return;
       }
     }
     for (const text of texts) {
-      if (shapes.filter((shape) => contains(layers[shape].bounds, layers[text].bounds)).length !== 1) {
+      if (
+        shapes.filter((shape) =>
+          contains(layers[shape].bounds, layers[text].bounds),
+        ).length !== 1
+      ) {
         return;
       }
       labels.push(text);
     }
     if (labels.length >= 2) {
       folder.listLabels = labels.sort(
-        (a, b) => layers[a].bounds.left - layers[b].bounds.left || layers[a].bounds.top - layers[b].bounds.top,
+        (a, b) =>
+          layers[a].bounds.left - layers[b].bounds.left ||
+          layers[a].bounds.top - layers[b].bounds.top,
       );
     }
   });
@@ -735,7 +837,12 @@ function assignTextParents(
   const textSpans = new Map<number, { top: number; bottom: number }>();
   layers.forEach((layer, index) => {
     // Text counts with its CSS box (line-height and paragraph width), as that is what the layout places.
-    const rect = layer.type === "image" ? imageRect(index) : layer.type === "text" ? textBox(layer) : layer.bounds;
+    const rect =
+      layer.type === "image"
+        ? imageRect(index)
+        : layer.type === "text"
+          ? textBox(layer)
+          : layer.bounds;
     if (!rect) {
       return;
     }
@@ -780,7 +887,12 @@ function assignTextParents(
     const box = groupBoxes.get(group);
     return {
       name,
-      box: box && { left: box.left, top: box.top, width: box.right - box.left, height: box.bottom - box.top },
+      box: box && {
+        left: box.left,
+        top: box.top,
+        width: box.right - box.left,
+        height: box.bottom - box.top,
+      },
     };
   });
 }
@@ -794,10 +906,15 @@ function textProperties(layer: Layer, scale: number): Partial<PsdCodegenLayer> {
   const fontName = style.font?.name ?? "";
   return {
     fontFamily: fontName || undefined,
-    fontSize: style.fontSize !== undefined ? round(style.fontSize * yScale * scale) : undefined,
+    fontSize:
+      style.fontSize !== undefined
+        ? round(style.fontSize * yScale * scale)
+        : undefined,
     fontWeight: fontWeightFromName(fontName, style.fauxBold),
     italic: Boolean(style.fauxItalic) || /italic|oblique/i.test(fontName),
-    letterSpacing: style.tracking ? Math.round(style.tracking) / 1000 : undefined,
+    letterSpacing: style.tracking
+      ? Math.round(style.tracking) / 1000
+      : undefined,
     lineHeight:
       style.autoLeading === false && style.leading
         ? round(style.leading * yScale * scale)
@@ -840,12 +957,16 @@ function hasVisibleEffects(layer: Layer): boolean {
   if (!effects || effects.disabled) {
     return false;
   }
-  return Object.entries(effects).some(([name, value]) =>
-    name !== "disabled" &&
-    name !== "scale" &&
-    (Array.isArray(value) ? value : [value]).some(
-      (effect) => effect && typeof effect === "object" && (effect as { enabled?: boolean }).enabled !== false,
-    ),
+  return Object.entries(effects).some(
+    ([name, value]) =>
+      name !== "disabled" &&
+      name !== "scale" &&
+      (Array.isArray(value) ? value : [value]).some(
+        (effect) =>
+          effect &&
+          typeof effect === "object" &&
+          (effect as { enabled?: boolean }).enabled !== false,
+      ),
   );
 }
 
@@ -882,12 +1003,21 @@ function matchArtboardFeedImages(
     artboard.layers.flatMap((layer, index) => {
       const key = `${artboard.size}|${artboard.frame}|${index}`;
       return layer.type === "image"
-        ? [{ key, layerName: layer.name, frame: artboard.frame, summary: summaries.get(key)?.summary }]
+        ? [
+            {
+              key,
+              layerName: layer.name,
+              frame: artboard.frame,
+              summary: summaries.get(key)?.summary,
+            },
+          ]
         : [];
     }),
   );
   const { matches, scores } = matchFeedImages(layers, feeds);
-  log?.(`Pixel distances per PSD image layer (lower is closer):\n${scores.map((score) => `  ${score.key} ${JSON.stringify(score.layerName)}: ${score.skipped ? `skipped (${score.skipped}) ` : ""}${JSON.stringify(score.distances)}`).join("\n")}`);
+  log?.(
+    `Pixel distances per PSD image layer (lower is closer):\n${scores.map((score) => `  ${score.key} ${JSON.stringify(score.layerName)}: ${score.skipped ? `skipped (${score.skipped}) ` : ""}${JSON.stringify(score.distances)}`).join("\n")}`,
+  );
   log?.(`Feed image matches: ${JSON.stringify(matches)}`);
   return { matches, feeds };
 }
@@ -907,7 +1037,8 @@ function createPlacement(
     layerIndex: Number(key.split("|").pop()),
     rect: roundRect(summaries.get(key)?.rect ?? layer.bounds),
     fit:
-      layer.clipBase !== undefined || (transparency?.opaqueRatio ?? 1) >= OPAQUE_IMAGE_RATIO
+      layer.clipBase !== undefined ||
+      (transparency?.opaqueRatio ?? 1) >= OPAQUE_IMAGE_RATIO
         ? "cover"
         : "contain",
     opacity: layer.opacity,
@@ -938,10 +1069,14 @@ function alignSameNamedImageBoxes(
     return width * height;
   };
   for (const keys of groups.values()) {
-    const smallest = keys.reduce((best, key) => (area(key) < area(best) ? key : best));
+    const smallest = keys.reduce((best, key) =>
+      area(key) < area(best) ? key : best,
+    );
     for (const key of keys) {
       if (area(key) > 2 * area(smallest)) {
-        log?.(`Image box of ${key} replaced by the box of same-named ${smallest} (stray pixels).`);
+        log?.(
+          `Image box of ${key} replaced by the box of same-named ${smallest} (stray pixels).`,
+        );
         summaries.get(key)!.rect = { ...summaries.get(smallest)!.rect };
       }
     }
@@ -959,17 +1094,24 @@ function matchArtboardFeedText(
     for (const layer of artboard.layers) {
       if (layer.type === "text" && layer.text) {
         const copy = `${artboard.size}|${layer.text.replace(/\s+/g, " ").trim()}`;
-        framesWithCopy.set(copy, (framesWithCopy.get(copy) ?? new Set()).add(artboard.frame));
+        framesWithCopy.set(
+          copy,
+          (framesWithCopy.get(copy) ?? new Set()).add(artboard.frame),
+        );
       }
     }
   }
   const layers = artboards.flatMap((artboard) => {
-    const labels = new Set(artboard.folders.flatMap(({ listLabels }) => listLabels ?? []));
+    const labels = new Set(
+      artboard.folders.flatMap(({ listLabels }) => listLabels ?? []),
+    );
     return artboard.layers.flatMap((layer, index) =>
       layer.type === "text" &&
       layer.text?.trim() &&
       !labels.has(index) &&
-      (framesWithCopy.get(`${artboard.size}|${layer.text.replace(/\s+/g, " ").trim()}`)?.size ?? 0) < 2
+      (framesWithCopy.get(
+        `${artboard.size}|${layer.text.replace(/\s+/g, " ").trim()}`,
+      )?.size ?? 0) < 2
         ? [
             {
               key: `${artboard.size}|${artboard.frame}|${index}`,
@@ -985,10 +1127,16 @@ function matchArtboardFeedText(
         : [],
     );
   });
-  const usable = fields.filter(({ placeholderName }) => isCopyField(placeholderName));
+  const usable = fields.filter(({ placeholderName }) =>
+    isCopyField(placeholderName),
+  );
   const matches = matchFeedTextByProfile(layers, usable);
-  log?.(`Feed text fields (first variant): ${JSON.stringify(usable.map(({ placeholderName }) => placeholderName))}`);
-  log?.(`Feed text matches: ${JSON.stringify(matches.map((match) => ({ ...match, text: layers.find(({ key }) => key === match.key)?.text.slice(0, 40) })))}`);
+  log?.(
+    `Feed text fields (first variant): ${JSON.stringify(usable.map(({ placeholderName }) => placeholderName))}`,
+  );
+  log?.(
+    `Feed text matches: ${JSON.stringify(matches.map((match) => ({ ...match, text: layers.find(({ key }) => key === match.key)?.text.slice(0, 40) })))}`,
+  );
 
   const bindings = new Map<string, FeedTextBinding[]>();
   for (const match of matches) {
@@ -998,7 +1146,10 @@ function matchArtboardFeedText(
       { text: layer.text, placeholderName: match.placeholderName },
     ]);
   }
-  return { bindings, methods: new Map(matches.map(({ key, method }) => [key, method])) };
+  return {
+    bindings,
+    methods: new Map(matches.map(({ key, method }) => [key, method])),
+  };
 }
 
 function roundRect(rect: Rect): Rect {
@@ -1060,14 +1211,18 @@ function buildGeneratedCreative(
   const singleSize = sizes.length === 1;
 
   for (const size of sizes) {
-    const sizeArtboards = draft.artboards.filter((artboard) => artboard.size === size);
+    const sizeArtboards = draft.artboards.filter(
+      (artboard) => artboard.size === size,
+    );
     const frames = sizeArtboards.map(({ frame }) => frame);
     const reserved = new Set<string>(["ad", "bg"]);
     // One class per distinct feed image box, so the same image is identical in every frame.
-    const imageClasses = mergeSizePlacements(size, frames, placements).map((placement) => ({
-      placement,
-      className: imageRoleClass(placement.placeholderName, reserved),
-    }));
+    const imageClasses = mergeSizePlacements(size, frames, placements).map(
+      (placement) => ({
+        placement,
+        className: imageRoleClass(placement.placeholderName, reserved),
+      }),
+    );
 
     const frameLayouts = sizeArtboards.map((artboard) => {
       const artboardKey = `${artboard.size}|${artboard.frame}`;
@@ -1075,14 +1230,23 @@ function buildGeneratedCreative(
       const bindings = textBindings.get(artboardKey) ?? [];
       const used = new Set(reserved);
       const describe: string[] = [];
-      const artboardSize = { width: artboard.creativeWidth, height: artboard.creativeHeight };
-      const folderBox = (folder: number) => roundRect(artboard.folders[folder].box!);
+      const artboardSize = {
+        width: artboard.creativeWidth,
+        height: artboard.creativeHeight,
+      };
+      const folderBox = (folder: number) =>
+        roundRect(artboard.folders[folder].box!);
       const isCentred = (layer: PsdCodegenLayer, key: string) =>
-        layer.type === "text" && layer.parentFolder !== undefined && centered.has(key) && !hidden.has(key);
+        layer.type === "text" &&
+        layer.parentFolder !== undefined &&
+        centered.has(key) &&
+        !hidden.has(key);
       const frameLists = lists.get(artboardKey) ?? new Map<number, string>();
       // Labels of mapped lists are replaced from the feed in script.js.
       const listLabelIndexes = new Set(
-        [...frameLists.keys()].flatMap((folder) => artboard.folders[folder]?.listLabels ?? []),
+        [...frameLists.keys()].flatMap(
+          (folder) => artboard.folders[folder]?.listLabels ?? [],
+        ),
       );
       // Every list item is a copy of the first, so all use the tightest padding of the PSD's labels.
       const listPadding = new Map<number, { left: number; right: number }>();
@@ -1095,19 +1259,37 @@ function buildGeneratedCreative(
               (layer) =>
                 (layer.type === "shape" || layer.type === "image") &&
                 layer.bounds.left <= ink.left + 1 &&
-                layer.bounds.left + layer.bounds.width >= ink.left + ink.width - 1 &&
+                layer.bounds.left + layer.bounds.width >=
+                  ink.left + ink.width - 1 &&
                 layer.bounds.top <= ink.top + 1 &&
-                layer.bounds.top + layer.bounds.height >= ink.top + ink.height - 1,
+                layer.bounds.top + layer.bounds.height >=
+                  ink.top + ink.height - 1,
             )
-            .sort((a, b) => a.bounds.width * a.bounds.height - b.bounds.width * b.bounds.height)[0];
+            .sort(
+              (a, b) =>
+                a.bounds.width * a.bounds.height -
+                b.bounds.width * b.bounds.height,
+            )[0];
           return host
-            ? [{ left: ink.left - host.bounds.left, right: host.bounds.left + host.bounds.width - ink.left - ink.width }]
+            ? [
+                {
+                  left: ink.left - host.bounds.left,
+                  right:
+                    host.bounds.left + host.bounds.width - ink.left - ink.width,
+                },
+              ]
             : [];
         });
         if (gaps.length > 0) {
           const padding = {
-            left: Math.max(0, round1(Math.min(...gaps.map(({ left }) => left)))),
-            right: Math.max(0, round1(Math.min(...gaps.map(({ right }) => right)))),
+            left: Math.max(
+              0,
+              round1(Math.min(...gaps.map(({ left }) => left))),
+            ),
+            right: Math.max(
+              0,
+              round1(Math.min(...gaps.map(({ right }) => right))),
+            ),
           };
           labels.forEach((label) => listPadding.set(label, padding));
         }
@@ -1123,8 +1305,14 @@ function buildGeneratedCreative(
         const { left, width } = textHorizontal(layer);
         const current = folderPadding.get(folder);
         folderPadding.set(folder, {
-          left: Math.min(current?.left ?? Infinity, Math.max(0, round1(left - box.left))),
-          right: Math.min(current?.right ?? Infinity, Math.max(0, round1(box.left + box.width - left - width))),
+          left: Math.min(
+            current?.left ?? Infinity,
+            Math.max(0, round1(left - box.left)),
+          ),
+          right: Math.min(
+            current?.right ?? Infinity,
+            Math.max(0, round1(box.left + box.width - left - width)),
+          ),
         });
       });
 
@@ -1134,7 +1322,10 @@ function buildGeneratedCreative(
         let className = folderClasses.get(folder);
         if (!className) {
           const { name } = artboard.folders[folder];
-          className = CSS_CLASS_NAME.test(name) && !used.has(name) ? name : layerClass(name, used);
+          className =
+            CSS_CLASS_NAME.test(name) && !used.has(name)
+              ? name
+              : layerClass(name, used);
           used.add(className);
           folderClasses.set(folder, className);
         }
@@ -1142,7 +1333,9 @@ function buildGeneratedCreative(
       };
       // Layers still named "Rectangle 20 copy 5" or after their own copy are named by folder and role.
       const elementClass = (layer: PsdCodegenLayer) => {
-        const folder = (layer.folders ?? []).filter((index) => artboard.folders[index]?.box).at(-1);
+        const folder = (layer.folders ?? [])
+          .filter((index) => artboard.folders[index]?.box)
+          .at(-1);
         if (folder === undefined || !hasDefaultName(layer)) {
           return layerClass(layer.name, used);
         }
@@ -1191,7 +1384,10 @@ function buildGeneratedCreative(
         (stack[stack.length - 1]?.children ?? roots).push(item);
       };
       const element = (
-        item: Omit<LayoutItem, "classAttr" | "attrs" | "inner" | "children" | "size"> &
+        item: Omit<
+          LayoutItem,
+          "classAttr" | "attrs" | "inner" | "children" | "size"
+        > &
           Partial<Pick<LayoutItem, "classAttr" | "attrs" | "inner" | "size">>,
       ): LayoutItem => ({
         classAttr: item.className,
@@ -1208,19 +1404,31 @@ function buildGeneratedCreative(
           return;
         }
         // The clipped image's element takes the mask's box, so the mask itself is not drawn.
-        if (layer.clipImage !== undefined && !hidden.has(`${artboardKey}|${layer.clipImage}`)) {
+        if (
+          layer.clipImage !== undefined &&
+          !hidden.has(`${artboardKey}|${layer.clipImage}`)
+        ) {
           return;
         }
-        const folders = (layer.folders ?? []).filter((folder) => artboard.folders[folder]?.box);
+        const folders = (layer.folders ?? []).filter(
+          (folder) => artboard.folders[folder]?.box,
+        );
         // Centred text is a flex item of its folder, so it sits directly inside it.
         const path = isCentred(layer, key)
           ? folders.slice(0, folders.indexOf(layer.parentFolder!) + 1)
           : folders;
-        const filter = layer.opacity < 1 ? ` filter: opacity(${Math.round(layer.opacity * 100) / 100});` : "";
+        const filter =
+          layer.opacity < 1
+            ? ` filter: opacity(${Math.round(layer.opacity * 100) / 100});`
+            : "";
 
-        const feedImage = frameImages.find((placement) => placement.layerIndex === index);
+        const feedImage = frameImages.find(
+          (placement) => placement.layerIndex === index,
+        );
         if (feedImage) {
-          const entry = imageClasses.find(({ placement }) => placement.members.includes(feedImage))!;
+          const entry = imageClasses.find(({ placement }) =>
+            placement.members.includes(feedImage),
+          )!;
           add(
             path,
             element({
@@ -1233,7 +1441,9 @@ function buildGeneratedCreative(
             }),
           );
           usedImagePlaceholders.add(feedImage.placeholderName);
-          describe.push(`${layer.name} → feed ${feedImage.placeholderName}${feedImage.recolor ? ` (made ${feedImage.recolor})` : ""}`);
+          describe.push(
+            `${layer.name} → feed ${feedImage.placeholderName}${feedImage.recolor ? ` (made ${feedImage.recolor})` : ""}`,
+          );
           return;
         }
 
@@ -1246,7 +1456,15 @@ function buildGeneratedCreative(
           const className = elementClass(layer);
           const box = roundRect(visual.artRect);
           if (isSolidFill(visual.summary)) {
-            add(path, element({ className, tag: "div", box, style: `background-color: ${averageColor(visual.summary)};${filter}` }));
+            add(
+              path,
+              element({
+                className,
+                tag: "div",
+                box,
+                style: `background-color: ${averageColor(visual.summary)};${filter}`,
+              }),
+            );
             describe.push(`${layer.name} → colour box`);
             return;
           }
@@ -1263,12 +1481,21 @@ function buildGeneratedCreative(
                 style: `background-image: url("${fileName}"); background-size: cover; background-position: center; background-repeat: no-repeat;${filter}`,
               }),
             );
-            describe.push(`${layer.name} → ${fileName} in ${artboard.layers[layer.clipBase].name}`);
+            describe.push(
+              `${layer.name} → ${fileName} in ${artboard.layers[layer.clipBase].name}`,
+            );
             return;
           }
           add(
             path,
-            element({ className, tag: "img", attrs: ` src="${fileName}" alt=""`, box, style: filter.trim(), image: fileName }),
+            element({
+              className,
+              tag: "img",
+              attrs: ` src="${fileName}" alt=""`,
+              box,
+              style: filter.trim(),
+              image: fileName,
+            }),
           );
           describe.push(`${layer.name} → ${fileName}`);
           return;
@@ -1285,7 +1512,9 @@ function buildGeneratedCreative(
               style: `${layer.shapeCss ?? `background-color: ${layer.fill};`}${filter}`,
             }),
           );
-          describe.push(`${layer.name} → ${layer.shapeCss ? "CSS shape" : "colour box"}`);
+          describe.push(
+            `${layer.name} → ${layer.shapeCss ? "CSS shape" : "colour box"}`,
+          );
           return;
         }
 
@@ -1294,19 +1523,29 @@ function buildGeneratedCreative(
           const field = isListLabel
             ? undefined
             : bindings.find(({ text }) => text === layer.text)?.placeholderName;
-          const className = field && !used.has(field) ? field : elementClass(layer);
+          const className =
+            field && !used.has(field) ? field : elementClass(layer);
           used.add(className);
           if (field) {
             usedTextPlaceholders.add(field);
           }
           const centred = isCentred(layer, key);
-          const text = textParts(layer, draft.fonts, Boolean(field) || isListLabel, centred);
+          const text = textParts(
+            layer,
+            draft.fonts,
+            Boolean(field) || isListLabel,
+            centred,
+          );
           add(
             path,
             element({
               className,
               tag: "div",
-              attrs: field ? " data-font_autoscale" : isListLabel ? " data-list-label" : "",
+              attrs: field
+                ? " data-font_autoscale"
+                : isListLabel
+                  ? " data-list-label"
+                  : "",
               inner: field ? "" : textToHtml(layer.text),
               box: text.box,
               ink: layer.bounds,
@@ -1319,7 +1558,9 @@ function buildGeneratedCreative(
               centred,
             }),
           );
-          describe.push(`${JSON.stringify(layer.text.trim().slice(0, 30))} → ${field ? `feed ${field}` : "fixed copy"}${centred ? ` centred in ${layer.parent!.name}` : ""}`);
+          describe.push(
+            `${JSON.stringify(layer.text.trim().slice(0, 30))} → ${field ? `feed ${field}` : "fixed copy"}${centred ? ` centred in ${layer.parent!.name}` : ""}`,
+          );
         }
       });
       log?.(`Elements in ${artboardKey}: ${JSON.stringify(describe)}`);
@@ -1339,7 +1580,10 @@ function buildGeneratedCreative(
     const scopeRoot = singleSize
       ? "#creative_container"
       : `#creative_container .psd-artboard[data-size="${size}"]`;
-    const merged = mergeFrameLayouts(frameLayouts, scopeRoot, { unwrapRoot: true, allowPsdAssetUrls: true });
+    const merged = mergeFrameLayouts(frameLayouts, scopeRoot, {
+      unwrapRoot: true,
+      allowPsdAssetUrls: true,
+    });
     frameSets.push(...merged.frameSets);
     log?.(
       `${size} shared across frames: ${merged.shared.length > 0 ? merged.shared.join(", ") : "nothing (each frame keeps its own elements)"}`,
@@ -1418,9 +1662,14 @@ function renderLayoutItems(
 ): { html: string; parentCss: string; grows: boolean } {
   const items = parent ? nestTextInShapes(input) : input;
   const origin = parent ?? { left: 0, top: 0, ...container };
-  const flow = parent && !items.some(({ centred }) => centred) ? flowLayout(items, origin) : undefined;
+  const flow =
+    parent && !items.some(({ centred }) => centred)
+      ? flowLayout(items, origin)
+      : undefined;
   // Centred texts stack in a column, so they follow the artboard top to bottom, not the layer order.
-  const centredByTop = items.filter(({ centred }) => centred).sort((a, b) => a.box.top - b.box.top);
+  const centredByTop = items
+    .filter(({ centred }) => centred)
+    .sort((a, b) => a.box.top - b.box.top);
   const ordered = flow
     ? flow.ordered
     : items.map((item) => (item.centred ? centredByTop.shift()! : item));
@@ -1432,7 +1681,9 @@ function renderLayoutItems(
       item.folder !== undefined &&
       !item.layout &&
       hasOnlyCentredText(item) &&
-      Math.abs(item.box.left + item.box.width / 2 - (origin.left + origin.width / 2)) <= 2
+      Math.abs(
+        item.box.left + item.box.width / 2 - (origin.left + origin.width / 2),
+      ) <= 2
     ) {
       const box = { ...item.box, left: origin.left, width: origin.width };
       item.box = box;
@@ -1443,13 +1694,23 @@ function renderLayoutItems(
       item.attrs = "";
       item.style = `background-image: url("${item.image}"); background-size: 100% 100%; background-repeat: no-repeat; ${item.style}`;
     }
-    const label = item.children.length === 1 && item.folder === undefined ? item.children[0] : undefined;
+    const label =
+      item.children.length === 1 && item.folder === undefined
+        ? item.children[0]
+        : undefined;
     if (label?.feed && label.ink) {
       // A button with feed text grows with it: padding from the PSD instead of a fixed width.
       const box = item.box;
-      const left = label.padding?.left ?? Math.max(0, round1(label.ink.left - box.left));
-      const right = label.padding?.right ?? Math.max(0, round1(box.left + box.width - label.ink.left - label.ink.width));
-      item.size = (size) => `min-width: ${box.width}px; ${sizeCss(box, size).replace(/^width: [^;]+;\s*/, "")}`;
+      const left =
+        label.padding?.left ?? Math.max(0, round1(label.ink.left - box.left));
+      const right =
+        label.padding?.right ??
+        Math.max(
+          0,
+          round1(box.left + box.width - label.ink.left - label.ink.width),
+        );
+      item.size = (size) =>
+        `min-width: ${box.width}px; ${sizeCss(box, size).replace(/^width: [^;]+;\s*/, "")}`;
       item.layout = `display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 0 ${right}px 0 ${left}px;`;
       label.centred = true;
       label.style = `white-space: nowrap; ${label.style}`;
@@ -1464,30 +1725,48 @@ function renderLayoutItems(
     }
     const childLayout =
       item.layout ??
-      (item.folder !== undefined || item.children.length > 0 ? `display: flex;${inner.parentCss}` : "");
+      (item.folder !== undefined || item.children.length > 0
+        ? `display: flex;${inner.parentCss}`
+        : "");
     const position = item.centred
       ? "position: relative;"
       : flow
         ? `position: relative; flex-shrink: 0;${flow.margins[index]}`
         : `position: absolute; left: ${round1(item.box.left - origin.left)}px; top: ${round1(item.box.top - origin.top)}px;`;
     css.push(
-      `.${item.className} { ${[position, item.centred ? "" : item.size(container), item.style, childLayout]
+      `.${item.className} { ${[
+        position,
+        item.centred ? "" : item.size(container),
+        item.style,
+        childLayout,
+      ]
         .filter(Boolean)
         .join(" ")} }`,
     );
     const open = `<${item.tag} class="${item.classAttr}"${item.attrs}>`;
-    return item.tag === "img" ? open : `${open}${item.inner}${inner.html}</${item.tag}>`;
+    return item.tag === "img"
+      ? open
+      : `${open}${item.inner}${inner.html}</${item.tag}>`;
   });
-  return { html: html.join(""), parentCss: flow?.parentCss ?? "", grows: ordered.length === 1 && Boolean(ordered[0].grows) };
+  return {
+    html: html.join(""),
+    parentCss: flow?.parentCss ?? "",
+    grows: ordered.length === 1 && Boolean(ordered[0].grows),
+  };
 }
 
 /** True when every element in the subtree is centre-aligned text. */
 function hasOnlyCentredText(item: LayoutItem): boolean {
   const leaves: LayoutItem[] = [];
   const collect = (node: LayoutItem) =>
-    node.children.length === 0 ? leaves.push(node) : node.children.forEach(collect);
+    node.children.length === 0
+      ? leaves.push(node)
+      : node.children.forEach(collect);
   item.children.forEach(collect);
-  return leaves.length > 0 && leaves.every((leaf) => leaf.text && leaf.align === "center");
+  return (
+    leaves.length > 0 &&
+    leaves.every((leaf) => leaf.text && leaf.align === "center")
+  );
 }
 
 /** Inside a folder, moves each text onto the shape or image below it that contains it, e.g. a label on a button. */
@@ -1505,8 +1784,15 @@ function nestTextInShapes(items: LayoutItem[]): LayoutItem[] {
     const index = result.indexOf(text);
     const host = result
       .slice(0, index)
-      .filter((item) => !item.text && item.folder === undefined && contains(item.box, text.ink!))
-      .sort((a, b) => a.box.width * a.box.height - b.box.width * b.box.height)[0];
+      .filter(
+        (item) =>
+          !item.text &&
+          item.folder === undefined &&
+          contains(item.box, text.ink!),
+      )
+      .sort(
+        (a, b) => a.box.width * a.box.height - b.box.width * b.box.height,
+      )[0];
     if (host) {
       host.children.push(text);
       result.splice(index, 1);
@@ -1533,7 +1819,8 @@ function flowLayout(
       round1(
         index === 0
           ? item.box[start] - parent[start]
-          : item.box[start] - (ordered[index - 1].box[start] + ordered[index - 1].box[length]),
+          : item.box[start] -
+              (ordered[index - 1].box[start] + ordered[index - 1].box[length]),
       ),
     );
     if (gaps.slice(1).some((gap) => gap < -0.5)) {
@@ -1541,24 +1828,48 @@ function flowLayout(
     }
     const last = ordered[ordered.length - 1];
     const between = gaps.slice(1);
-    const evenGap = between.length > 0 && between.every((gap) => Math.abs(gap - between[0]) < 0.5);
+    const evenGap =
+      between.length > 0 &&
+      between.every((gap) => Math.abs(gap - between[0]) < 0.5);
     // Text is centred by its glyphs; its CSS box also holds line-height and some spare width.
     const ink = (item: LayoutItem) => item.ink ?? item.box;
     const leading = ink(ordered[0])[start] - parent[start];
-    const trailing = parent[start] + parent[length] - (ink(last)[start] + ink(last)[length]);
-    const centredMain = leading > 0.5 && Math.abs(leading - trailing) < 1 && (between.length === 0 || evenGap);
-    const crossOffsets = ordered.map((item) => round1(item.box[crossStart] - parent[crossStart]));
+    const trailing =
+      parent[start] + parent[length] - (ink(last)[start] + ink(last)[length]);
+    const centredMain =
+      leading > 0.5 &&
+      Math.abs(leading - trailing) < 1 &&
+      (between.length === 0 || evenGap);
+    const crossOffsets = ordered.map((item) =>
+      round1(item.box[crossStart] - parent[crossStart]),
+    );
     const centredCross = ordered.every((item) => {
       const rect = ink(item);
       return (
-        Math.abs(rect[crossStart] + rect[crossLength] / 2 - (parent[crossStart] + parent[crossLength] / 2)) < 2
+        Math.abs(
+          rect[crossStart] +
+            rect[crossLength] / 2 -
+            (parent[crossStart] + parent[crossLength] / 2),
+        ) < 2
       );
     });
-    const [mainMargin, crossMargin] = axis === "row" ? ["margin-left", "margin-top"] : ["margin-top", "margin-left"];
+    const [mainMargin, crossMargin] =
+      axis === "row"
+        ? ["margin-left", "margin-top"]
+        : ["margin-top", "margin-left"];
     const margins = ordered.map((_, index) => {
-      const main = centredMain ? 0 : index === 0 ? gaps[0] : evenGap ? 0 : gaps[index];
+      const main = centredMain
+        ? 0
+        : index === 0
+          ? gaps[0]
+          : evenGap
+            ? 0
+            : gaps[index];
       const cross = centredCross ? 0 : crossOffsets[index];
-      return [main ? ` ${mainMargin}: ${main}px;` : "", cross ? ` ${crossMargin}: ${cross}px;` : ""].join("");
+      return [
+        main ? ` ${mainMargin}: ${main}px;` : "",
+        cross ? ` ${crossMargin}: ${cross}px;` : "",
+      ].join("");
     });
     const parentCss = [
       axis === "column" ? " flex-direction: column;" : "",
@@ -1572,8 +1883,12 @@ function flowLayout(
 }
 
 /** Left edge and width of a text element, from the PSD bounds, box width and alignment. */
-function textHorizontal(layer: PsdCodegenLayer): { left: number; width: number } {
-  const width = Math.round((layer.boxWidth ?? layer.bounds.width * 1.1) * 10) / 10;
+function textHorizontal(layer: PsdCodegenLayer): {
+  left: number;
+  width: number;
+} {
+  const width =
+    Math.round((layer.boxWidth ?? layer.bounds.width * 1.1) * 10) / 10;
   const left =
     layer.align === "center"
       ? layer.bounds.left + layer.bounds.width / 2 - width / 2
@@ -1588,9 +1903,16 @@ function textBox(layer: PsdCodegenLayer): Rect {
   const fontSize = layer.fontSize ?? 16;
   const lineHeight = layer.lineHeight ?? round1(fontSize * 1.2);
   // Photoshop bounds start at the glyph tops; CSS boxes start above them by half the leading plus the ascender gap.
-  const top = round1(layer.bounds.top - (lineHeight - fontSize) / 2 - fontSize * 0.08);
+  const top = round1(
+    layer.bounds.top - (lineHeight - fontSize) / 2 - fontSize * 0.08,
+  );
   const { left, width } = textHorizontal(layer);
-  return { left: round1(left), top, width, height: round1(layer.bounds.top + layer.bounds.height - top) };
+  return {
+    left: round1(left),
+    top,
+    width,
+    height: round1(layer.bounds.top + layer.bounds.height - top),
+  };
 }
 
 /** CSS box, size and style of a text layer; position is added by the layout. */
@@ -1609,7 +1931,9 @@ function textParts(
   const isBox = layer.boxWidth !== undefined;
   const style = [
     isBox || fromFeed ? "" : "white-space: nowrap;",
-    fontVariable ? `font-family: var(${fontVariable}), sans-serif;` : "font-family: sans-serif;",
+    fontVariable
+      ? `font-family: var(${fontVariable}), sans-serif;`
+      : "font-family: sans-serif;",
     `font-size: ${fontSize}px;`,
     `font-weight: ${layer.fontWeight ?? 400};`,
     layer.italic ? "font-style: italic;" : "",
@@ -1618,11 +1942,17 @@ function textParts(
     layer.letterSpacing ? `letter-spacing: ${layer.letterSpacing}em;` : "",
     layer.uppercase ? "text-transform: uppercase;" : "",
     layer.color ? `color: ${layer.color};` : "",
-    layer.align && (layer.align !== "left" || !centred) ? `text-align: ${layer.align};` : "",
+    layer.align && (layer.align !== "left" || !centred)
+      ? `text-align: ${layer.align};`
+      : "",
   ];
   const size = [
-    isBox || (layer.align && layer.align !== "left") ? `width: ${width}px;` : `max-width: ${width}px;`,
-    fromFeed ? `max-height: ${round1(Math.max(layer.bounds.height * 1.3, lineHeight))}px;` : "",
+    isBox || (layer.align && layer.align !== "left")
+      ? `width: ${width}px;`
+      : `max-width: ${width}px;`,
+    fromFeed
+      ? `max-height: ${round1(Math.max(layer.bounds.height * 1.3, lineHeight))}px;`
+      : "",
   ];
   return {
     box,
@@ -1636,11 +1966,12 @@ function matchFontVariable(
   psdFont: string | undefined,
   fonts: PsdFontVariable[],
 ): string | undefined {
-  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalize = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]/g, "");
   const name = normalize(psdFont ?? "");
   return (
-    fonts.find(({ family }) => name && name.startsWith(normalize(family)))?.variable ??
-    fonts[0]?.variable
+    fonts.find(({ family }) => name && name.startsWith(normalize(family)))
+      ?.variable ?? fonts[0]?.variable
   );
 }
 
@@ -1666,7 +1997,11 @@ function hasDefaultName(layer: PsdCodegenLayer): boolean {
 }
 
 /** What a layer does in its folder: its text, the background behind it, or another image/shape. */
-function elementRole(layer: PsdCodegenLayer, folder: number, artboard: PsdCodegenArtboard): string {
+function elementRole(
+  layer: PsdCodegenLayer,
+  folder: number,
+  artboard: PsdCodegenArtboard,
+): string {
   if (layer.type === "text") {
     return "text";
   }
@@ -1677,19 +2012,30 @@ function elementRole(layer: PsdCodegenLayer, folder: number, artboard: PsdCodege
     inner.left + inner.width <= box.left + box.width + 1 &&
     inner.top + inner.height <= box.top + box.height + 1;
   const holdsText = artboard.layers.some(
-    (other) => other.type === "text" && other.folders?.at(-1) === folder && contains(other.bounds),
+    (other) =>
+      other.type === "text" &&
+      other.folders?.at(-1) === folder &&
+      contains(other.bounds),
   );
   const folderBox = artboard.folders[folder].box;
   const fillsFolder =
     folderBox !== undefined &&
     Math.abs(box.width - folderBox.width) <= 1 &&
     Math.abs(box.height - folderBox.height) <= 1;
-  return holdsText || fillsFolder ? "bg" : layer.type === "image" ? "img" : "shape";
+  return holdsText || fillsFolder
+    ? "bg"
+    : layer.type === "image"
+      ? "img"
+      : "shape";
 }
 
 /** Lowercase snake_case class from a layer name, unique within `used`. */
 function layerClass(name: string, used: Set<string>): string {
-  const snake = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32);
+  const snake = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32);
   const base = /^[a-z]/.test(snake) ? snake : `layer_${snake || "item"}`;
   let className = base;
   for (let index = 2; used.has(className); index++) {
@@ -1714,7 +2060,11 @@ function layerInkColor(source: LayerPixels | undefined): Rgb | undefined {
       const index = (y * width + x) * 4;
       // Only clearly visible pixels; anti-aliased edges blend with whatever is behind them.
       if (data[index + 3] * toByte > 128) {
-        colours.push({ r: data[index] * toByte, g: data[index + 1] * toByte, b: data[index + 2] * toByte });
+        colours.push({
+          r: data[index] * toByte,
+          g: data[index + 1] * toByte,
+          b: data[index + 2] * toByte,
+        });
       }
     }
   }
@@ -1726,7 +2076,9 @@ function layerInkColor(source: LayerPixels | undefined): Rgb | undefined {
     g: colours.reduce((sum, { g }) => sum + g, 0) / colours.length,
     b: colours.reduce((sum, { b }) => sum + b, 0) / colours.length,
   };
-  const close = colours.filter((colour) => colourDistance(colour, average) <= 48).length;
+  const close = colours.filter(
+    (colour) => colourDistance(colour, average) <= 48,
+  ).length;
   return close / colours.length >= 0.97 ? average : undefined;
 }
 
@@ -1741,10 +2093,16 @@ const NAMED_COLOURS: Record<string, Rgb> = {
  */
 export function svgInkColor(svg: string): Rgb | undefined {
   const values = [
-    ...svg.matchAll(/\b(?:fill|stroke|stop-color)\s*(?:=\s*["']|:\s*)([^"';}>]+)/gi),
+    ...svg.matchAll(
+      /\b(?:fill|stroke|stop-color)\s*(?:=\s*["']|:\s*)([^"';}>]+)/gi,
+    ),
   ].map(([, value]) => value.trim().toLowerCase());
   const colours = values
-    .filter((value) => !["none", "transparent", "inherit"].includes(value) && !value.startsWith("url("))
+    .filter(
+      (value) =>
+        !["none", "transparent", "inherit"].includes(value) &&
+        !value.startsWith("url("),
+    )
     .map((value) => {
       if (value === "currentcolor") {
         return NAMED_COLOURS.black;
@@ -1754,11 +2112,20 @@ export function svgInkColor(svg: string): Rgb | undefined {
       }
       const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(value)?.[1];
       if (hex) {
-        const full = hex.length === 3 ? [...hex].map((digit) => digit + digit).join("") : hex;
-        return { r: parseInt(full.slice(0, 2), 16), g: parseInt(full.slice(2, 4), 16), b: parseInt(full.slice(4, 6), 16) };
+        const full =
+          hex.length === 3
+            ? [...hex].map((digit) => digit + digit).join("")
+            : hex;
+        return {
+          r: parseInt(full.slice(0, 2), 16),
+          g: parseInt(full.slice(2, 4), 16),
+          b: parseInt(full.slice(4, 6), 16),
+        };
       }
       const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/.exec(value);
-      return rgb ? { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) } : null;
+      return rgb
+        ? { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) }
+        : null;
     });
   if (colours.includes(null)) {
     return undefined;
@@ -1767,7 +2134,9 @@ export function svgInkColor(svg: string): Rgb | undefined {
   if (known.length === 0) {
     return NAMED_COLOURS.black;
   }
-  return known.every((colour) => colourDistance(colour, known[0]) <= 24) ? known[0] : undefined;
+  return known.every((colour) => colourDistance(colour, known[0]) <= 24)
+    ? known[0]
+    : undefined;
 }
 
 function colourDistance(a: Rgb, b: Rgb): number {
@@ -1792,7 +2161,10 @@ function svgRecolors(
   }
   return Object.fromEntries(
     [...svgInks]
-      .filter(([, svgInk]) => svgInk && colourDistance(svgInk, NAMED_COLOURS[target]) > 60)
+      .filter(
+        ([, svgInk]) =>
+          svgInk && colourDistance(svgInk, NAMED_COLOURS[target]) > 60,
+      )
       .map(([field]) => [field, target]),
   );
 }
@@ -1801,7 +2173,11 @@ function svgRecolors(
 function feedFilter(opacity: number, recolor?: SvgRecolor): string {
   const filters = [
     // brightness(0) makes every visible pixel black; invert(1) then turns it white.
-    recolor === "white" ? "brightness(0) invert(1)" : recolor === "black" ? "brightness(0)" : "",
+    recolor === "white"
+      ? "brightness(0) invert(1)"
+      : recolor === "black"
+        ? "brightness(0)"
+        : "",
     opacity < 1 ? `opacity(${Math.round(opacity * 100) / 100})` : "",
   ].filter(Boolean);
   return filters.length > 0 ? ` filter: ${filters.join(" ")};` : "";
@@ -1809,8 +2185,12 @@ function feedFilter(opacity: number, recolor?: SvgRecolor): string {
 
 function averageColor(summary: PixelSummary): string {
   const channels = [0, 1, 2].map((channel) => {
-    const values = summary.signature.filter((_, index) => index % 4 === channel);
-    return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+    const values = summary.signature.filter(
+      (_, index) => index % 4 === channel,
+    );
+    return Math.round(
+      values.reduce((sum, value) => sum + value, 0) / values.length,
+    );
   });
   return `rgb(${channels.join(", ")})`;
 }
@@ -1833,12 +2213,18 @@ function encodeLayerPng({ data, width, maxValue, crop }: LayerPixels): Buffer {
   return PNG.sync.write(png);
 }
 
-function createArtboardCss(artboards: PsdCodegenArtboard[], singleSize: boolean): string {
-  const hidden = "#creative_container [data-frames] { opacity: 0; visibility: hidden; }";
+function createArtboardCss(
+  artboards: PsdCodegenArtboard[],
+  singleSize: boolean,
+): string {
+  const hidden =
+    "#creative_container [data-frames] { opacity: 0; visibility: hidden; }";
   if (singleSize) {
     return hidden;
   }
-  const sizes = [...new Map(artboards.map((artboard) => [artboard.size, artboard])).values()];
+  const sizes = [
+    ...new Map(artboards.map((artboard) => [artboard.size, artboard])).values(),
+  ];
   return [
     "#creative_container { position: relative; overflow: hidden; }",
     "#creative_container .psd-artboard { display: none; position: absolute; top: 0; left: 0; overflow: hidden; }",
@@ -1876,8 +2262,10 @@ function getArtboardLayers(psd: Psd): ArtboardLayer[] {
 function getLayerBounds(layer: Layer, artboard: PsdArtboard): Rect | null {
   const left = layer.left ?? layer.text?.left ?? artboard.left;
   const top = layer.top ?? layer.text?.top ?? artboard.top;
-  const right = layer.right ?? layer.text?.right ?? left + (layer.imageData?.width ?? 0);
-  const bottom = layer.bottom ?? layer.text?.bottom ?? top + (layer.imageData?.height ?? 0);
+  const right =
+    layer.right ?? layer.text?.right ?? left + (layer.imageData?.width ?? 0);
+  const bottom =
+    layer.bottom ?? layer.text?.bottom ?? top + (layer.imageData?.height ?? 0);
   return { left, top, width: right - left, height: bottom - top };
 }
 
@@ -1898,10 +2286,16 @@ function justificationToAlign(
  * A rectangle, rounded rectangle or ellipse drawn with Photoshop's shape tools, with a solid fill
  * and/or solid stroke and no effects, as CSS. Anything else is exported as artwork.
  */
-function liveShape(layer: Layer, scale: number): { box: DocRect; css: string; opaque: boolean } | undefined {
+function liveShape(
+  layer: Layer,
+  scale: number,
+): { box: DocRect; css: string; opaque: boolean } | undefined {
   type Unit = { value?: number } | undefined;
-  const origins = (layer.vectorOrigination as { keyDescriptorList?: Record<string, any>[] } | undefined)
-    ?.keyDescriptorList;
+  const origins = (
+    layer.vectorOrigination as
+      | { keyDescriptorList?: Record<string, any>[] }
+      | undefined
+  )?.keyDescriptorList;
   if (!origins || origins.length !== 1) {
     return undefined;
   }
@@ -1909,20 +2303,33 @@ function liveShape(layer: Layer, scale: number): { box: DocRect; css: string; op
   // keyOriginType: 1 rectangle, 2 rounded rectangle, 5 ellipse.
   const type = origin.keyOriginType as number;
   const transform = origin.transform as number[] | undefined;
-  if (![1, 2, 5].includes(type) || (transform && (Math.abs(transform[1]) > 1e-6 || Math.abs(transform[2]) > 1e-6))) {
+  if (
+    ![1, 2, 5].includes(type) ||
+    (transform &&
+      (Math.abs(transform[1]) > 1e-6 || Math.abs(transform[2]) > 1e-6))
+  ) {
     return undefined;
   }
-  const bbox = origin.keyOriginShapeBoundingBox as Record<string, Unit> | undefined;
+  const bbox = origin.keyOriginShapeBoundingBox as
+    | Record<string, Unit>
+    | undefined;
   const box = {
     left: bbox?.left?.value ?? NaN,
     top: bbox?.top?.value ?? NaN,
     right: bbox?.right?.value ?? NaN,
     bottom: bbox?.bottom?.value ?? NaN,
   };
-  if (!Object.values(box).every(Number.isFinite) || box.right <= box.left || box.bottom <= box.top) {
+  if (
+    !Object.values(box).every(Number.isFinite) ||
+    box.right <= box.left ||
+    box.bottom <= box.top
+  ) {
     return undefined;
   }
-  if (hasVisibleEffects(layer) || (layer.fillOpacity !== undefined && layer.fillOpacity < 1)) {
+  if (
+    hasVisibleEffects(layer) ||
+    (layer.fillOpacity !== undefined && layer.fillOpacity < 1)
+  ) {
     return undefined;
   }
 
@@ -1933,10 +2340,15 @@ function liveShape(layer: Layer, scale: number): { box: DocRect; css: string; op
     return undefined;
   }
   let border = "";
-  const strokeWidth = stroke?.strokeEnabled ? (stroke.lineWidth?.value ?? 0) : 0;
+  const strokeWidth = stroke?.strokeEnabled
+    ? (stroke.lineWidth?.value ?? 0)
+    : 0;
   if (strokeWidth > 0) {
-    const content = stroke!.content as { type?: string; color?: unknown } | undefined;
-    const color = content?.type === "color" ? colorToCss(content.color) : undefined;
+    const content = stroke!.content as
+      | { type?: string; color?: unknown }
+      | undefined;
+    const color =
+      content?.type === "color" ? colorToCss(content.color) : undefined;
     if (!color || (stroke!.lineDashSet?.length ?? 0) > 0) {
       return undefined;
     }
@@ -1950,17 +2362,28 @@ function liveShape(layer: Layer, scale: number): { box: DocRect; css: string; op
   if (type === 5) {
     radius = "border-radius: 50%;";
   } else if (type === 2) {
-    const radii = origin.keyOriginRRectRadii as Record<string, Unit> | undefined;
-    const max = (Math.min(box.right - box.left, box.bottom - box.top) * scale) / 2;
-    const corner = (value: Unit) => round1(Math.min(max, (value?.value ?? 0) * scale));
-    const corners = [radii?.topLeft, radii?.topRight, radii?.bottomRight, radii?.bottomLeft].map(corner);
+    const radii = origin.keyOriginRRectRadii as
+      | Record<string, Unit>
+      | undefined;
+    const max =
+      (Math.min(box.right - box.left, box.bottom - box.top) * scale) / 2;
+    const corner = (value: Unit) =>
+      round1(Math.min(max, (value?.value ?? 0) * scale));
+    const corners = [
+      radii?.topLeft,
+      radii?.topRight,
+      radii?.bottomRight,
+      radii?.bottomLeft,
+    ].map(corner);
     radius = corners.every((value) => value === corners[0])
       ? `border-radius: ${corners[0]}px;`
       : `border-radius: ${corners.join("px ")}px;`;
   }
   return {
     box,
-    css: [fill ? `background-color: ${fill};` : "", border, radius].filter(Boolean).join(" "),
+    css: [fill ? `background-color: ${fill};` : "", border, radius]
+      .filter(Boolean)
+      .join(" "),
     opaque: Boolean(fill) && type === 1,
   };
 }
@@ -1970,10 +2393,18 @@ function colorToCss(color: unknown): string | undefined {
     return undefined;
   }
   const value = color as Record<string, number>;
-  if (Number.isFinite(value.r) && Number.isFinite(value.g) && Number.isFinite(value.b)) {
+  if (
+    Number.isFinite(value.r) &&
+    Number.isFinite(value.g) &&
+    Number.isFinite(value.b)
+  ) {
     return `rgb(${Math.round(value.r)}, ${Math.round(value.g)}, ${Math.round(value.b)})`;
   }
-  if (Number.isFinite(value.fr) && Number.isFinite(value.fg) && Number.isFinite(value.fb)) {
+  if (
+    Number.isFinite(value.fr) &&
+    Number.isFinite(value.fg) &&
+    Number.isFinite(value.fb)
+  ) {
     return `rgb(${Math.round(value.fr * 255)}, ${Math.round(value.fg * 255)}, ${Math.round(value.fb * 255)})`;
   }
   return undefined;

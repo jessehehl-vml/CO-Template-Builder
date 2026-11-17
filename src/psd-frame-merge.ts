@@ -18,7 +18,14 @@ type PreparedFrame = {
   children: FrameChild[];
 };
 
-const POSITION_PROPS = new Set(["position", "top", "left", "right", "bottom", "inset"]);
+const POSITION_PROPS = new Set([
+  "position",
+  "top",
+  "left",
+  "right",
+  "bottom",
+  "inset",
+]);
 
 /**
  * Combines per-frame layouts into frame wrappers plus shared layers.
@@ -41,12 +48,19 @@ export function mergeFrameLayouts(
 
   const framesBySignature = new Map<string, number[]>();
   for (const frame of frames) {
-    for (const signature of new Set(frame.children.map(({ signature }) => signature))) {
-      framesBySignature.set(signature, [...(framesBySignature.get(signature) ?? []), frame.frame]);
+    for (const signature of new Set(
+      frame.children.map(({ signature }) => signature),
+    )) {
+      framesBySignature.set(signature, [
+        ...(framesBySignature.get(signature) ?? []),
+        frame.frame,
+      ]);
     }
   }
   const repeated = new Set(
-    [...framesBySignature].filter(([, list]) => list.length > 1).map(([signature]) => signature),
+    [...framesBySignature]
+      .filter(([, list]) => list.length > 1)
+      .map(([signature]) => signature),
   );
   const bottom = stableEdge(frames, repeated, "start");
   const top = stableEdge(
@@ -94,8 +108,7 @@ export function mergeFrameLayouts(
       }
     }
     html.push(`<div class="${name}">${parts.join("")}</div>`);
-    const rootDeclarations = postcss
-      .parse(`x{${origin.rootBody}}`)
+    const rootDeclarations = postcss.parse(`x{${origin.rootBody}}`)
       .first as postcss.Rule;
     rootDeclarations.walkDecls((declaration) => {
       if (POSITION_PROPS.has(declaration.prop.toLowerCase())) {
@@ -106,7 +119,11 @@ export function mergeFrameLayouts(
       `#creative_container {${rootDeclarations.nodes.map(String).join(";")}}`,
       ...[...rules].map(([selector, body]) => `${selector} {${body}}`),
     ].join("\n");
-    css.push(scopePsdCss(layerCss, `${scopeRoot} .${name}`, { allowPsdAssetUrls: options.allowPsdAssetUrls }));
+    css.push(
+      scopePsdCss(layerCss, `${scopeRoot} .${name}`, {
+        allowPsdAssetUrls: options.allowPsdAssetUrls,
+      }),
+    );
   };
 
   sharedLayer("shared_bottom", bottom);
@@ -114,16 +131,23 @@ export function mergeFrameLayouts(
     frame.root.childNodes = frame.root.childNodes.filter(
       (node: any) =>
         !node.tagName ||
-        !bottom.has(signatureOf(frame, node)) && !top.has(signatureOf(frame, node)),
+        (!bottom.has(signatureOf(frame, node)) &&
+          !top.has(signatureOf(frame, node))),
     );
     frameSets.push([frame.frame]);
     html.push(
       `<div class="frame${frame.frame}" data-frames="${frame.frame}">${options.unwrapRoot ? serialize(frame.root) : serializeOuter(frame.root)}</div>`,
     );
     const frameCss = options.unwrapRoot
-      ? frame.normalizedRules.map(({ selector, body }) => `${selector} {${body}}`).join("\n")
+      ? frame.normalizedRules
+          .map(({ selector, body }) => `${selector} {${body}}`)
+          .join("\n")
       : frame.css;
-    css.push(scopePsdCss(frameCss, `${scopeRoot} .frame${frame.frame}`, { allowPsdAssetUrls: options.allowPsdAssetUrls }));
+    css.push(
+      scopePsdCss(frameCss, `${scopeRoot} .frame${frame.frame}`, {
+        allowPsdAssetUrls: options.allowPsdAssetUrls,
+      }),
+    );
   }
   sharedLayer("shared_top", top);
 
@@ -145,7 +169,8 @@ function stableEdge(
   while (changed) {
     changed = false;
     for (const frame of frames) {
-      const ordered = edge === "start" ? frame.children : [...frame.children].reverse();
+      const ordered =
+        edge === "start" ? frame.children : [...frame.children].reverse();
       let inEdge = true;
       for (const { signature } of ordered) {
         inEdge = inEdge && result.has(signature);
@@ -164,7 +189,8 @@ function prepareFrame(layout: FrameLayout): PreparedFrame {
   const elements = fragment.childNodes.filter((node: any) => node.tagName);
   let root = elements[0];
   if (elements.length !== 1) {
-    root = (parseFragment('<div class="frame_root"></div>') as any).childNodes[0];
+    root = (parseFragment('<div class="frame_root"></div>') as any)
+      .childNodes[0];
     root.childNodes = fragment.childNodes;
   }
   if (classesOf(root).length === 0) {
@@ -172,14 +198,19 @@ function prepareFrame(layout: FrameLayout): PreparedFrame {
   }
   for (const child of root.childNodes ?? []) {
     if (child.tagName) {
-      child.attrs = (child.attrs ?? []).filter(({ name }: any) => name !== "data-frames");
+      child.attrs = (child.attrs ?? []).filter(
+        ({ name }: any) => name !== "data-frames",
+      );
     }
   }
   const rootClasses = classesOf(root);
-  const rootSelector = rootClasses.length > 0 ? `.${rootClasses.join(".")}` : "";
+  const rootSelector =
+    rootClasses.length > 0 ? `.${rootClasses.join(".")}` : "";
   const isRootCompound = (compound: string) =>
     compound !== "" &&
-    [...compound.matchAll(/\.([\w-]+)/g)].every(([, name]) => rootClasses.includes(name)) &&
+    [...compound.matchAll(/\.([\w-]+)/g)].every(([, name]) =>
+      rootClasses.includes(name),
+    ) &&
     /^(?:\.[\w-]+)+$/.test(compound);
 
   const parsed = postcss.parse(layout.css);
@@ -205,7 +236,10 @@ function prepareFrame(layout: FrameLayout): PreparedFrame {
       const trimmed = selector.trim();
       const [first, ...rest] = trimmed.split(/\s*>\s*|\s+/);
       normalizedRules.push({
-        selector: isRootCompound(first) && rest.length > 0 ? trimmed.slice(first.length).replace(/^\s*>?\s*/, "") : trimmed,
+        selector:
+          isRootCompound(first) && rest.length > 0
+            ? trimmed.slice(first.length).replace(/^\s*>?\s*/, "")
+            : trimmed,
         body,
       });
     }
@@ -235,7 +269,9 @@ function prepareFrame(layout: FrameLayout): PreparedFrame {
       signature: [
         serializeOuter(node),
         ...relevantRules(normalizedRules, node)
-          .map(({ selector, body }) => `${selector}{${body.replace(/\s+/g, "")}}`)
+          .map(
+            ({ selector, body }) => `${selector}{${body.replace(/\s+/g, "")}}`,
+          )
           .sort(),
       ].join("\n"),
     }));
@@ -259,7 +295,9 @@ function relevantRules(
     const last = selector.split(/\s*[>+~]\s*|\s+/).pop() ?? "";
     const compound = last.replace(/::?[\w-]+(\([^)]*\))?/g, "");
     const tag = /^[a-z][\w-]*/i.exec(compound)?.[0];
-    const classes = [...compound.matchAll(/\.([\w-]+)/g)].map(([, name]) => name);
+    const classes = [...compound.matchAll(/\.([\w-]+)/g)].map(
+      ([, name]) => name,
+    );
     if (!tag && classes.length === 0) {
       return false;
     }
@@ -272,13 +310,18 @@ function relevantRules(
 }
 
 function classesOf(node: any): string[] {
-  return String(node.attrs?.find(({ name }: any) => name === "class")?.value ?? "")
+  return String(
+    node.attrs?.find(({ name }: any) => name === "class")?.value ?? "",
+  )
     .split(/\s+/)
     .filter(Boolean);
 }
 
 function setAttribute(node: any, name: string, value: string): void {
-  node.attrs = [...(node.attrs ?? []).filter((attr: any) => attr.name !== name), { name, value }];
+  node.attrs = [
+    ...(node.attrs ?? []).filter((attr: any) => attr.name !== name),
+    { name, value },
+  ];
 }
 
 function describe(node: any): string {

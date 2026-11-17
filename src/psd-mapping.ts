@@ -1,6 +1,11 @@
 /** Data for reviewing which feed field each PSD layer uses, shared by the extension and the wizard. */
 
-export type PsdMappingBox = { left: number; top: number; width: number; height: number };
+export type PsdMappingBox = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
 export type PsdMappingLayer = {
   /** `${size}|${frame}|${layerIndex}` */

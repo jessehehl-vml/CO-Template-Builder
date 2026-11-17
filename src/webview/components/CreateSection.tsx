@@ -101,54 +101,54 @@ export default function CreateSection({
                   a.width - b.width || a.height - b.height || a.frame - b.frame,
               )
               .map((frame, index) => {
-              const width = psdIs2x ? frame.width / 2 : frame.width;
-              const height = psdIs2x ? frame.height / 2 : frame.height;
-              const duration =
-                frameDurations[frame.frame] ?? 15 / frameNumbers.length;
-              const maxDuration = Math.max(
-                0.1,
-                15 - (totalFrameDuration - duration),
-              );
-              return (
-                <figure
-                  className="psd-storyboard-frame"
-                  key={`${width}x${height}-frame${frame.frame}-${index}`}
-                >
-                  <img
-                    src={frame.previewDataUrl}
-                    alt={`Frame ${frame.frame}, ${width}x${height}`}
-                  />
-                  <figcaption>
-                    <div className="psd-storyboard-meta">
-                      <strong>Frame {frame.frame}</strong>
-                      <span>
-                        {width}x{height}
-                      </span>
-                    </div>
-                    <label className="psd-storyboard-duration">
-                      <span>Duration</span>
-                      <span className="frame-duration-input">
-                        <input
-                          type="number"
-                          min={0.1}
-                          max={maxDuration}
-                          step={0.1}
-                          value={duration}
-                          aria-label={`Duration for frame ${frame.frame} in seconds`}
-                          onChange={(event) =>
-                            onFrameDurationChange(
-                              frame.frame,
-                              Number(event.target.value),
-                            )
-                          }
-                        />
-                        <span>sec</span>
-                      </span>
-                    </label>
-                  </figcaption>
-                </figure>
-              );
-            })}
+                const width = psdIs2x ? frame.width / 2 : frame.width;
+                const height = psdIs2x ? frame.height / 2 : frame.height;
+                const duration =
+                  frameDurations[frame.frame] ?? 15 / frameNumbers.length;
+                const maxDuration = Math.max(
+                  0.1,
+                  15 - (totalFrameDuration - duration),
+                );
+                return (
+                  <figure
+                    className="psd-storyboard-frame"
+                    key={`${width}x${height}-frame${frame.frame}-${index}`}
+                  >
+                    <img
+                      src={frame.previewDataUrl}
+                      alt={`Frame ${frame.frame}, ${width}x${height}`}
+                    />
+                    <figcaption>
+                      <div className="psd-storyboard-meta">
+                        <strong>Frame {frame.frame}</strong>
+                        <span>
+                          {width}x{height}
+                        </span>
+                      </div>
+                      <label className="psd-storyboard-duration">
+                        <span>Duration</span>
+                        <span className="frame-duration-input">
+                          <input
+                            type="number"
+                            min={0.1}
+                            max={maxDuration}
+                            step={0.1}
+                            value={duration}
+                            aria-label={`Duration for frame ${frame.frame} in seconds`}
+                            onChange={(event) =>
+                              onFrameDurationChange(
+                                frame.frame,
+                                Number(event.target.value),
+                              )
+                            }
+                          />
+                          <span>sec</span>
+                        </span>
+                      </label>
+                    </figcaption>
+                  </figure>
+                );
+              })}
           </div>
         </>
       )}

@@ -270,13 +270,53 @@ function createFrame1Animation() {
   assert.match(messages(generated({ frames: 2 }))[0], /frame2-preview/);
 });
 
-test("accepts frame timelines added in one mainTimeline chain", () => {
+test("accepts frame timelines and labels added in a loop", () => {
   const files = generated({ frames: 2, frame: `${frameCode(1)}\n${frameCode(2)}` }).map((file) =>
     file.path === "script.js"
       ? {
           ...file,
           content: file.content
             .replace("const frame1Timeline = gsap.timeline();", "const frame1Timeline = gsap.timeline();\nconst frame2Timeline = gsap.timeline();")
+            .replace(
+              /function startAnimations\(\) \{[\s\S]*?\n\}/,
+              `function startAnimations() {
+  const frames = {
+    1: { create: createFrame1Animation, timeline: frame1Timeline },
+    2: { create: createFrame2Animation, timeline: frame2Timeline },
+  };
+  let previewNumber = 1;
+  [1, 2].forEach((value) => {
+    const frame = frames[value];
+    frame.create();
+    const frameStart = mainTimeline.duration();
+    mainTimeline.add(frame.timeline, frameStart);
+    mainTimeline.addLabel(\`frame\${previewNumber}-preview\`, frameStart + frame.timeline.labels["preview-ready"]);
+    previewNumber++;
+  });
+}`,
+            ),
+        }
+      : file,
+  );
+  const messages = lintBanner(files, [])
+    .filter((finding) => finding.rule === "ANI-003")
+    .map((finding) => finding.message);
+  assert.deepEqual(messages, []);
+});
+
+test("accepts frame timelines added in one mainTimeline chain", () => {
+  const files = generated({
+    frames: 2,
+    frame: `${frameCode(1)}\n${frameCode(2)}`,
+  }).map((file) =>
+    file.path === "script.js"
+      ? {
+          ...file,
+          content: file.content
+            .replace(
+              "const frame1Timeline = gsap.timeline();",
+              "const frame1Timeline = gsap.timeline();\nconst frame2Timeline = gsap.timeline();",
+            )
             .replace(
               /function startAnimations\(\) \{[\s\S]*?\n\}/,
               `function startAnimations() {

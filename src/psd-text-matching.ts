@@ -128,7 +128,16 @@ const ROLE_TOKENS: Record<string, string[]> = {
   legal: ["legal", "disclaimer", "terms"],
   price: ["price", "cents", "amount"],
 };
-const IGNORED_NAME_TOKENS = new Set(["standard", "text", "txt", "url", "value", "layer", "copy", "the"]);
+const IGNORED_NAME_TOKENS = new Set([
+  "standard",
+  "text",
+  "txt",
+  "url",
+  "value",
+  "layer",
+  "copy",
+  "the",
+]);
 const MIN_SCORE = 3;
 
 /** Lowercase name tokens ("headline_f3" -> headline, f3), with frame tokens normalised to "f3". */
@@ -142,7 +151,9 @@ function nameTokens(name: string): string[] {
 }
 
 function roleOf(tokens: string[]): string | undefined {
-  return Object.entries(ROLE_TOKENS).find(([, words]) => tokens.some((token) => words.includes(token)))?.[0];
+  return Object.entries(ROLE_TOKENS).find(([, words]) =>
+    tokens.some((token) => words.includes(token)),
+  )?.[0];
 }
 
 function tokenDice(a: string[], b: string[]): number {
@@ -156,7 +167,11 @@ function tokenDice(a: string[], b: string[]): number {
 /** Text fields that hold copy: not URLs, lists ("[a] [b]") or one-word settings like "Prospecting". */
 function isCopyValue(value: string): boolean {
   const text = value.trim();
-  return !/^https?:\/\//i.test(text) && !/^\[.*\]$/s.test(text) && textWords(text).length >= 2;
+  return (
+    !/^https?:\/\//i.test(text) &&
+    !/^\[.*\]$/s.test(text) &&
+    textWords(text).length >= 2
+  );
 }
 
 /**
@@ -180,7 +195,9 @@ export function matchFeedTextByProfile(
     const pairs = members.flatMap((layer) =>
       copyFields.flatMap((field) => {
         const scored = scorePair(layer, field, prominence.indexOf(layer));
-        return scored && scored.score >= MIN_SCORE ? [{ layer, field, ...scored }] : [];
+        return scored && scored.score >= MIN_SCORE
+          ? [{ layer, field, ...scored }]
+          : [];
       }),
     );
 
@@ -194,7 +211,11 @@ export function matchFeedTextByProfile(
       }
       for (let next = index; next < pairs.length; next++) {
         const pair = pairs[next];
-        if (chosen.some(({ layer, field }) => layer === pair.layer || field === pair.field)) {
+        if (
+          chosen.some(
+            ({ layer, field }) => layer === pair.layer || field === pair.field,
+          )
+        ) {
           continue;
         }
         chosen.push(pair);
@@ -238,7 +259,12 @@ function scorePair(
 
   const fieldRole = roleOf(fieldTokens);
   const namedRole = roleOf(layerTokens);
-  const rankedRole = prominence === 0 ? "headline" : prominence === 1 ? "subheadline" : undefined;
+  const rankedRole =
+    prominence === 0
+      ? "headline"
+      : prominence === 1
+        ? "subheadline"
+        : undefined;
   if (fieldRole && namedRole) {
     score += fieldRole === namedRole ? 2 : -2;
   } else if (fieldRole && rankedRole) {
@@ -247,7 +273,10 @@ function scorePair(
 
   // Language-independent shape of the copy.
   const ending = (value: string) => value.trim().slice(-1);
-  const [layerEnd, fieldEnd] = [ending(layer.text), ending(field.value.replace(/<[^>]*>/g, ""))];
+  const [layerEnd, fieldEnd] = [
+    ending(layer.text),
+    ending(field.value.replace(/<[^>]*>/g, "")),
+  ];
   if (layerEnd === "?" && fieldEnd === "?") {
     score += 3;
   } else if ((layerEnd === "?") !== (fieldEnd === "?")) {

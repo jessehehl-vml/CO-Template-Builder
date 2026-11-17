@@ -966,12 +966,14 @@ function checkPreviewTimelines(
     );
   }
 
-  const addedTimelines = mainTimelineAdds(text);
+  const { added: addedTimelines, dynamic: dynamicAdds } = mainTimelineAdds(text);
+  // Labels built in a loop, e.g. addLabel(`frame${n}-preview`, start + offset), cannot be checked one by one.
+  const dynamicLabel = /addLabel\(\s*`frame\$\{[^}]+\}-preview`\s*(,)?/.exec(text);
 
   for (let n = 1; n <= count; n++) {
-    const label = new RegExp(
-      `addLabel\\(\\s*["'\`]frame${n}-preview["'\`]\\s*(,)?`,
-    ).exec(text);
+    const label =
+      new RegExp(`addLabel\\(\\s*["'\`]frame${n}-preview["'\`]\\s*(,)?`).exec(text) ??
+      dynamicLabel;
 
     if (!label) {
       problem(
@@ -990,7 +992,11 @@ function checkPreviewTimelines(
       );
     }
 
-    if (!addedTimelines.has(n)) {
+    // A timeline added through a variable (e.g. frames[n].timeline) counts when the script refers to it outside its declaration.
+    const mentions = [...text.matchAll(new RegExp(`\\bframe${n}Timeline\\b`, "g"))].length;
+
+    // Frames may use other names (e.g. frameEndTimeline); only check frameNTimeline when it exists.
+    if (mentions > 0 && !addedTimelines.has(n) && !(dynamicAdds && mentions > 1)) {
       problem(
         "error",
         "script.js",
@@ -1013,9 +1019,11 @@ function checkPreviewTimelines(
 }
 
 // Frame numbers passed to mainTimeline.add(), also in chains such as
-// mainTimeline.add(frame1Timeline, 0).add(frame2Timeline, 0).
-function mainTimelineAdds(text: string): Set<number> {
+// mainTimeline.add(frame1Timeline, 0).add(frame2Timeline, 0). `dynamic` is true when a
+// timeline is added through a property, as in mainTimeline.add(frame.timeline, start).
+function mainTimelineAdds(text: string): { added: Set<number>; dynamic: boolean } {
   const added = new Set<number>();
+  let dynamic = false;
 
   for (const match of text.matchAll(/\bmainTimeline\b/g)) {
     let i = match.index + match[0].length;
@@ -1040,10 +1048,13 @@ function mainTimelineAdds(text: string): Set<number> {
       }
 
       if (call[1] === "add") {
-        const timeline = /^\s*frame(\d+)Timeline\b/.exec(text.slice(open + 1, close));
+        const argument = text.slice(open + 1, close);
+        const timeline = /^\s*frame(\d+)Timeline\b/.exec(argument);
 
         if (timeline) {
           added.add(Number(timeline[1]));
+        } else if (/^\s*[A-Za-z_$][\w$]*(?:\s*\.\s*[\w$]+|\s*\[[^\]]+\])+\s*(?:,|$)/.test(argument)) {
+          dynamic = true;
         }
       }
 
@@ -1051,7 +1062,7 @@ function mainTimelineAdds(text: string): Set<number> {
     }
   }
 
-  return added;
+  return { added, dynamic };
 }
 
 const SELECTOR_CALLS = [

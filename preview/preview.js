@@ -1686,6 +1686,24 @@ function isShown(win, el) {
   return true;
 }
 
+// Animations outside mainTimeline (e.g. started from a callback) keep playing in real time
+// while mainTimeline is paused; jump them to their end so the frame's final layout is measured.
+function finishLooseAnimations(win) {
+  const gsap = win.gsap;
+
+  if (!gsap?.globalTimeline) {
+    return;
+  }
+
+  gsap.globalTimeline
+    .getChildren(false, true, true)
+    .filter(
+      (animation) =>
+        !animation.paused() && animation.repeat() !== -1 && animation.totalProgress() < 1,
+    )
+    .forEach((animation) => animation.totalProgress(1));
+}
+
 // Pauses on each frame's end state and reports visible text outside the banner or cut off.
 // Leaves the timeline paused, so run it after the checks that need the animation.
 function findFrameOverflow(win) {
@@ -1703,6 +1721,7 @@ function findFrameOverflow(win) {
 
     for (let frame = 1; frame <= frames; frame++) {
       creative.pause(`frame${frame}-preview`);
+      finishLooseAnimations(win);
 
       win.document.body.querySelectorAll("*").forEach((el) => {
         const hasText = [...el.childNodes].some(
@@ -1716,6 +1735,11 @@ function findFrameOverflow(win) {
         const rect = el.getBoundingClientRect();
 
         if (!rect.width || !rect.height || !isShown(win, el)) {
+          return;
+        }
+
+        // Text parked fully outside the banner (waiting to animate in) is not seen.
+        if (rect.bottom <= 0 || rect.top >= height || rect.right <= 0 || rect.left >= width) {
           return;
         }
 

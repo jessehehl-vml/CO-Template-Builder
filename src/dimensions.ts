@@ -22,8 +22,12 @@ export function detectPsd2x(dimensions: string[]): boolean {
     const match = /^(\d+)x(\d+)$/i.exec(dimension.trim());
     return match ? [{ width: Number(match[1]), height: Number(match[2]) }] : [];
   });
-  const standardAt1x = sizes.filter(({ width, height }) => standardSizes.has(`${width}x${height}`)).length;
-  const standardAt2x = sizes.filter(({ width, height }) => standardSizes.has(`${width / 2}x${height / 2}`)).length;
+  const standardAt1x = sizes.filter(({ width, height }) =>
+    standardSizes.has(`${width}x${height}`),
+  ).length;
+  const standardAt2x = sizes.filter(({ width, height }) =>
+    standardSizes.has(`${width / 2}x${height / 2}`),
+  ).length;
   return standardAt2x > standardAt1x;
 }
 

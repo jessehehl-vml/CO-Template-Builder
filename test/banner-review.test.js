@@ -108,6 +108,21 @@ test("prompts carry the rules, numbered lines and the asset inventory", () => {
   assert.match(message, /logo\.png: 2048 bytes/);
 });
 
+test("prompts tell the reviewer whether the banner has one size or several", () => {
+  assert.match(
+    buildInstructions("rules", [], ["300x250"]),
+    /single size \(300x250\).*CSS-001 only report !important/,
+  );
+  assert.match(
+    buildInstructions("rules", [], ["300x250", "728x90"]),
+    /responsive with these sizes: 300x250, 728x90/,
+  );
+  assert.doesNotMatch(
+    buildInstructions("rules"),
+    /single size|responsive with/,
+  );
+});
+
 test("live click check detects native pointer handlers with mouse coordinates", async () => {
   const source = fs.readFileSync(
     path.join(__dirname, "../preview/preview.js"),
@@ -138,8 +153,11 @@ test("live click check detects native pointer handlers with mouse coordinates", 
         pointerDown = event.buttons === 1;
       }
       if (
-        working && pointerDown && event.type === "pointerup" &&
-        event.clientX === 150 && event.clientY === 125 &&
+        working &&
+        pointerDown &&
+        event.type === "pointerup" &&
+        event.clientX === 150 &&
+        event.clientY === 125 &&
         event.pointerType === "mouse"
       ) {
         listeners.get("lemonpi.interaction/click")({
@@ -161,9 +179,10 @@ test("live click check detects native pointer handlers with mouse coordinates", 
 
   const issues = await context.testClickOuts({ contentWindow: win }, content);
   assert.equal(issues.length, 0);
-  assert.deepEqual(events.map((event) => event.type), [
-    "pointerdown", "mousedown", "pointerup", "mouseup", "click",
-  ]);
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["pointerdown", "mousedown", "pointerup", "mouseup", "click"],
+  );
 
   placeholder = content.clickUrl.value;
   const invalid = await context.testClickOuts({ contentWindow: win }, content);

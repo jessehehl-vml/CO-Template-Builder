@@ -25,9 +25,18 @@ export default function MappingReviewPage() {
     <PsdMappingReview
       review={review}
       onConfirm={(decisions) =>
-        vscode.postMessage({ type: "psdMappingConfirmed", reviewId: review.reviewId, decisions })
+        vscode.postMessage({
+          type: "psdMappingConfirmed",
+          reviewId: review.reviewId,
+          decisions,
+        })
       }
-      onCancel={() => vscode.postMessage({ type: "psdMappingCancelled", reviewId: review.reviewId })}
+      onCancel={() =>
+        vscode.postMessage({
+          type: "psdMappingCancelled",
+          reviewId: review.reviewId,
+        })
+      }
     />
   );
 }

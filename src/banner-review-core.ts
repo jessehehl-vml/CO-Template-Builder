@@ -114,6 +114,7 @@ function numberLines(content: string): string {
 export function buildInstructions(
   rules: string,
   alreadyReported: Finding[] = [],
+  sizes: string[] = [],
 ): string {
   const reported = alreadyReported.length
     ? [
@@ -141,6 +142,17 @@ export function buildInstructions(
     "If there are no violations, respond with [].",
     "",
     "Only report what you can point to in the files. Never invent files, lines or rules. Report each distinct problem once.",
+    ...(sizes.length === 1
+      ? [
+          "",
+          `This banner has a single size (${sizes[0]}). Size-specific pixel values in styles.css are fine; for CSS-001 only report !important.`,
+        ]
+      : sizes.length > 1
+        ? [
+            "",
+            `This banner is responsive with these sizes: ${sizes.join(", ")}.`,
+          ]
+        : []),
     ...reported,
     "",
     "RULES",
