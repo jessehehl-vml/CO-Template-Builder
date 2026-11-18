@@ -100,6 +100,18 @@ window.Creative = {
       .map(
         (el) =>
           new Promise((resolve) => {
+            // Media elements don't fire "load" or expose "complete"
+            if (el instanceof HTMLMediaElement) {
+              if (el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                resolve();
+                return;
+              }
+
+              el.addEventListener("loadeddata", resolve, { once: true });
+              el.addEventListener("error", resolve, { once: true });
+              return;
+            }
+
             if (el.complete) {
               resolve();
               return;
@@ -115,8 +127,13 @@ window.Creative = {
     return Promise.all(waits);
   },
 
+  waitTimeout: 5000,
   awaitAll: function () {
-    return Promise.all(this.waits);
+    // Some waits never settle (e.g. video with preload="none"); don't block the banner forever.
+    const timeout = new Promise((resolve) =>
+      setTimeout(resolve, this.waitTimeout),
+    );
+    return Promise.race([Promise.all(this.waits), timeout]);
   },
   /* BROWSER_CHECK */
   /* AUTO_SCALE_FONT */

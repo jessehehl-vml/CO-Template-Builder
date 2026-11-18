@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.14
+
+### Added
+
+- `Creative.addWait` can wait for video and audio elements. It resolves once the first frame is loaded, or on error.
+
+### Changed
+
+- `Creative.awaitAll()` stops waiting after 5 seconds (`Creative.waitTimeout`), so a video or image that never loads can't keep the banner from starting.
+
 ## 0.0.13
 
 ### Changed
